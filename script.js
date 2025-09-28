@@ -30,27 +30,35 @@ function initApp() {
 function initInterface() {
     console.log('Инициализация интерфейса...');
     
-    // Принудительно устанавливаем ПК режим для TMA
-    setTimeout(forceDesktopMode, 100);
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
+    
+    window.addEventListener('resize', handleResize);
+    handleResize();
 }
 
-// ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК ДЛЯ TMA
-function forceDesktopMode() {
-    const contactsPanel = document.querySelector('.contacts-panel');
-    const chatWindow = document.querySelector('.chat-window');
-    
-    if (contactsPanel) {
-        contactsPanel.style.display = 'flex';
-        contactsPanel.style.width = '35%';
+function handleResize() {
+    if (window.innerWidth > 768) {
+        // PC режим
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.contacts-panel').style.width = '35%';
+        document.querySelector('.chat-window').style.display = 'flex';
+        document.querySelector('.chat-window').style.width = '65%';
+        document.querySelector('.header-back').style.display = 'none';
+    } else {
+        // Мобильный режим
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.contacts-panel').style.width = '100%';
+        document.querySelector('.chat-window').style.display = 'none';
+        document.querySelector('.header-back').style.display = 'block';
     }
-    
-    if (chatWindow) {
-        chatWindow.style.display = 'flex';
-        chatWindow.style.width = '65%';
-    }
-    
-    const headerBack = document.querySelector('.header-back');
-    if (headerBack) headerBack.style.display = 'none';
 }
 
 // ПРОВЕРКА ПАРОЛЯ
@@ -168,6 +176,10 @@ function openChat(contact) {
     if (sendButton) sendButton.disabled = false;
     
     loadChatHistory(contact.login);
+    
+    if (window.innerWidth <= 768) {
+        showChatWindow();
+    }
     
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
     const activeContact = document.querySelector(`[data-user-id="${contact.login}"]`);
@@ -326,19 +338,23 @@ function showPage(pageId) {
         pageElement.classList.add('active');
     }
     
-    setTimeout(forceDesktopMode, 50);
+    handleResize();
 }
 
 function goBack() {
-    forceDesktopMode();
+    if (window.innerWidth <= 768) {
+        hideChatWindow();
+    }
 }
 
 function showChatWindow() {
-    forceDesktopMode();
+    document.querySelector('.contacts-panel').style.display = 'none';
+    document.querySelector('.chat-window').style.display = 'flex';
 }
 
 function hideChatWindow() {
-    forceDesktopMode();
+    document.querySelector('.contacts-panel').style.display = 'flex';
+    document.querySelector('.chat-window').style.display = 'none';
 }
 
 // ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ
