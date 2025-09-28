@@ -1,263 +1,369 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
-// Аккаунты для входа
-const correctAccounts = [
-    { login: "247", password: "Utka2022@", name: "Агент 247" },
-    { login: "001", password: "Pomidor:2022@", name: "Организатор" },
-    { login: "749", password: "Dinozavr456@", name: "Агент 749" }
-];
+// Конфигурация
+const CONFIG = {
+    // Твой токен бота
+    BOT_TOKEN: '8414918030:AAG32jw18WxxZ-ALE1SN0rd0BI8m4nzlS5Q',
+    
+    // Аккаунты для входа
+    validAccounts: [
+        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
+        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
+        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" }
+    ],
+    
+    // ID чатов для демо (в реальном приложении будут настоящие chat_id)
+    demoChatIds: {
+        '247': '247',
+        '001': '001', 
+        '749': '749'
+    }
+};
 
 // Глобальные переменные
 let currentUser = null;
 let currentChat = null;
-let chats = {};
+let messageInterval = null;
 
 // Инициализация приложения
 function initApp() {
+    console.log('🚀 Инициализация Wolf Messenger...');
+    
     tg.expand();
     tg.enableClosingConfirmation();
     tg.setBackgroundColor('#000000');
+    tg.setHeaderColor('#000000');
     
-    // Инициализируем чаты
-    initChats();
-    console.log('Telegram Mini App инициализирован');
-}
-
-// Инициализация структуры чатов
-function initChats() {
-    // Для каждого пользователя создаем свои чаты (исключая себя)
-    const allUsers = ['247', '001', '749'];
+    // Проверяем, есть ли сохраненный пользователь
+    checkSavedUser();
     
-    allUsers.forEach(user => {
-        chats[user] = {};
-        allUsers.forEach(contact => {
-            if (user !== contact) {
-                chats[user][contact] = {
-                    name: getAccountName(contact),
-                    messages: getInitialMessages(user, contact)
-                };
-            }
-        });
-    });
+    // Инициализируем интерфейс
+    initInterface();
 }
 
-// Получение имени аккаунта
-function getAccountName(login) {
-    const account = correctAccounts.find(acc => acc.login === login);
-    return account ? account.name : login;
-}
-
-// Начальные сообщения для каждого чата
-function getInitialMessages(user, contact) {
-    const initialMessages = {
-        '247': {
-            '001': [
-                { text: 'Организатор, готов к работе', type: 'sent', time: '10:00', sender: '247' },
-                { text: '247, жду отчет к 18:00', type: 'received', time: '10:01', sender: '001' }
-            ],
-            '749': [
-                { text: '749, координируем действия', type: 'sent', time: '09:30', sender: '247' },
-                { text: 'Понял, на связи', type: 'received', time: '09:31', sender: '749' }
-            ]
-        },
-        '001': {
-            '247': [
-                { text: '247, готов к работе', type: 'received', time: '10:00', sender: '247' },
-                { text: 'Жду отчет к 18:00', type: 'sent', time: '10:01', sender: '001' }
-            ],
-            '749': [
-                { text: '749, задание получено?', type: 'sent', time: '11:00', sender: '001' },
-                { text: 'Так точно, выполняю', type: 'received', time: '11:01', sender: '749' }
-            ]
-        },
-        '749': {
-            '247': [
-                { text: '247, координируем действия', type: 'received', time: '09:30', sender: '247' },
-                { text: 'Понял, на связи', type: 'sent', time: '09:31', sender: '749' }
-            ],
-            '001': [
-                { text: '749, задание получено?', type: 'received', time: '11:00', sender: '001' },
-                { text: 'Так точно, выполняю', type: 'sent', time: '11:01', sender: '749' }
-            ]
+// Проверка сохраненного пользователя
+function checkSavedUser() {
+    const savedUser = localStorage.getItem('wolf_current_user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            showPage('app');
+            loadUserInterface();
+            startMessagePolling();
+        } catch (e) {
+            localStorage.removeItem('wolf_current_user');
         }
-    };
-    
-    return initialMessages[user]?.[contact] || [];
+    }
 }
 
-// Проверка пароля
-function checkPassword() {
+// Инициализация интерфейса
+function initInterface() {
+    // Обработчик отправки сообщения
+    const messageInput = document.getElementById('messageInput');
+    messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Обработчик изменения размера окна
+    window.addEventListener('resize', handleResize);
+    handleResize();
+}
+
+// Обработчик изменения размера
+function handleResize() {
+    if (window.innerWidth > 768) {
+        // ПК режим
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.chat-window').style.display = 'flex';
+        document.querySelector('.header-back').style.display = 'none';
+    } else {
+        // Мобильный режим
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.chat-window').style.display = 'none';
+        document.querySelector('.header-back').style.display = 'block';
+    }
+}
+
+// Проверка пароля и вход
+async function checkPassword() {
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    const isValid = correctAccounts.find(acc => acc.login === login && acc.password === password);
+    const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
 
     if (isValid) {
-        currentUser = login;
         errorMessage.textContent = '';
+        
+        // Устанавливаем текущего пользователя
+        currentUser = {
+            login: login,
+            name: isValid.name,
+            chatId: isValid.chatId
+        };
+        
+        // Сохраняем в localStorage
+        localStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        
         showPage('app');
-        initUserInterface();
-        // Автоматически выбираем первый доступный чат
-        const availableChats = Object.keys(chats[login]);
-        if (availableChats.length > 0) {
-            switchChat(availableChats[0]);
-        }
+        loadUserInterface();
+        startMessagePolling();
+        
     } else {
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
     }
 }
 
-// Переключение страниц
-function showPage(pageId) {
-    document.querySelectorAll('.page').forEach(page => {
-        page.classList.remove('active');
-    });
-    document.getElementById(pageId).classList.add('active');
-}
-
-// Инициализация интерфейса пользователя
-function initUserInterface() {
+// Загрузка интерфейса пользователя
+function loadUserInterface() {
     // Обновляем информацию о текущем пользователе
-    document.getElementById('currentUserAvatar').textContent = currentUser;
-    document.getElementById('currentUserName').textContent = getAccountName(currentUser);
+    document.getElementById('currentUserAvatar').textContent = currentUser.login;
+    document.getElementById('currentUserName').textContent = currentUser.name;
+    document.getElementById('currentUserStatus').textContent = 'online';
     
-    // Генерируем список контактов (исключая текущего пользователя)
-    generateContactsList();
+    // Загружаем контакты
+    loadContacts();
     
-    // Обработчик отправки сообщения
-    const messageInput = document.getElementById('messageInput');
-    messageInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
-    });
+    // Показываем приветственное сообщение
+    showWelcomeMessage();
 }
 
-// Генерация списка контактов
-function generateContactsList() {
+// Загрузка контактов
+function loadContacts() {
     const contactsList = document.getElementById('contactsList');
+    
+    // Фильтруем текущего пользователя из списка контактов
+    const contacts = CONFIG.validAccounts.filter(acc => acc.login !== currentUser.login);
+    
+    if (contacts.length === 0) {
+        contactsList.innerHTML = '<div class="loading">Нет доступных контактов</div>';
+        return;
+    }
+    
     contactsList.innerHTML = '';
     
-    const userChats = chats[currentUser];
-    Object.keys(userChats).forEach(contactId => {
-        const contact = userChats[contactId];
-        const lastMessage = contact.messages[contact.messages.length - 1];
-        
+    contacts.forEach(contact => {
         const contactElement = document.createElement('div');
         contactElement.className = 'contact';
-        contactElement.dataset.chat = contactId;
+        contactElement.dataset.userId = contact.login;
+        
+        // Случайный онлайн статус для демо
+        const isOnline = Math.random() > 0.3;
+        const statusClass = isOnline ? 'status-online' : 'status-offline';
+        const lastSeen = isOnline ? 'online' : 'был(а) недавно';
+        
         contactElement.innerHTML = `
-            <div class="contact-avatar">${contactId}</div>
+            <div class="contact-avatar ${statusClass}">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">${lastMessage ? lastMessage.text : 'Нет сообщений'}</div>
+                <div class="last-message">${lastSeen}</div>
             </div>
         `;
         
-        contactElement.addEventListener('click', function() {
-            switchChat(contactId);
-            if (window.innerWidth <= 768) {
-                showChatWindow();
-            }
-        });
-        
+        contactElement.addEventListener('click', () => openChat(contact));
         contactsList.appendChild(contactElement);
     });
+}
+
+// Открытие чата с пользователем
+function openChat(contact) {
+    currentChat = contact;
     
-    // Активируем первый контакт
-    const firstContact = contactsList.querySelector('.contact');
-    if (firstContact) {
-        firstContact.classList.add('active');
+    // Обновляем заголовок чата
+    document.getElementById('partnerAvatar').textContent = contact.login;
+    document.getElementById('partnerName').textContent = contact.name;
+    document.getElementById('partnerStatus').textContent = 'online';
+    
+    // Активируем поле ввода
+    document.getElementById('messageInput').disabled = false;
+    document.querySelector('.send-button').disabled = false;
+    
+    // Загружаем историю сообщений
+    loadChatHistory(contact.login);
+    
+    // На мобильных переключаем на окно чата
+    if (window.innerWidth <= 768) {
+        showChatWindow();
+    }
+    
+    // Помечаем контакт как активный
+    document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
+    document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
+}
+
+// Загрузка истории чата
+async function loadChatHistory(contactId) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    
+    try {
+        // Загружаем сообщения из Telegram Bot API
+        const messages = await getBotMessages();
+        const chatMessages = messages.filter(msg => 
+            (msg.sender === currentUser.login && msg.receiver === contactId) ||
+            (msg.sender === contactId && msg.receiver === currentUser.login)
+        );
+        
+        displayMessages(chatMessages);
+        
+    } catch (error) {
+        console.error('Ошибка загрузки сообщений:', error);
+        // Показываем демо-сообщения
+        showDemoMessages();
     }
 }
 
-// Переключение чата
-function switchChat(chatId) {
-    // Убираем активный класс у всех контактов
-    document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
-    // Добавляем активный класс текущему контакту
-    document.querySelector(`[data-chat="${chatId}"]`).classList.add('active');
-    
-    currentChat = chatId;
-    loadChat(chatId);
+// Получение сообщений из Telegram Bot API
+async function getBotMessages() {
+    try {
+        const response = await fetch(`https://api.telegram.org/bot${CONFIG.BOT_TOKEN}/getUpdates`);
+        const data = await response.json();
+        
+        if (data.ok) {
+            return parseBotMessages(data.result);
+        } else {
+            throw new Error(data.description);
+        }
+    } catch (error) {
+        console.error('Ошибка получения сообщений:', error);
+        return [];
+    }
 }
 
-// Загрузка чата
-function loadChat(chatId) {
-    const chat = chats[currentUser][chatId];
-    updateChatHeader(chat.name, chatId);
+// Парсинг сообщений из Bot API
+function parseBotMessages(updates) {
+    const messages = [];
     
-    // Очищаем сообщения
+    updates.forEach(update => {
+        if (update.message && update.message.text) {
+            const msg = update.message;
+            
+            // Определяем отправителя и получателя на основе текста
+            // В реальном приложении нужно будет настроить логику определения чатов
+            const parts = msg.text.split('|');
+            if (parts.length >= 3) {
+                messages.push({
+                    sender: parts[0],
+                    receiver: parts[1],
+                    text: parts[2],
+                    time: new Date(msg.date * 1000).toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}),
+                    type: 'text'
+                });
+            }
+        }
+    });
+    
+    return messages;
+}
+
+// Отображение сообщений
+function displayMessages(messages) {
     const messagesContainer = document.getElementById('messagesContainer');
     messagesContainer.innerHTML = '';
     
-    // Загружаем сообщения чата
-    chat.messages.forEach(msg => {
-        const messageType = msg.sender === currentUser ? 'sent' : 'received';
-        addMessageToContainer(msg.text, messageType, msg.time);
+    if (messages.length === 0) {
+        showWelcomeMessage();
+        return;
+    }
+    
+    messages.forEach(msg => {
+        const messageType = msg.sender === currentUser.login ? 'sent' : 'received';
+        addMessageToUI(msg.text, messageType, msg.time);
     });
 }
 
-// Отправка сообщения
-function sendMessage() {
+// Показ демо-сообщений (если Bot API не доступен)
+function showDemoMessages() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    messagesContainer.innerHTML = '';
+    
+    const demoMessages = [
+        { text: 'Привет! Как дела?', type: 'received', time: '10:30' },
+        { text: 'Привет! Все отлично, работаем!', type: 'sent', time: '10:31' },
+        { text: 'Есть новости по заданию?', type: 'received', time: '10:32' },
+        { text: 'Да, все по плану. Отчет готовлю.', type: 'sent', time: '10:33' }
+    ];
+    
+    demoMessages.forEach(msg => {
+        addMessageToUI(msg.text, msg.type, msg.time);
+    });
+}
+
+// Отправка сообщения через Telegram Bot API
+async function sendMessage() {
     const messageInput = document.getElementById('messageInput');
     const text = messageInput.value.trim();
     
-    if (text && currentChat) {
-        const now = new Date();
-        const time = now.getHours().toString().padStart(2, '0') + ':' + 
-                     now.getMinutes().toString().padStart(2, '0');
+    if (!text || !currentChat) return;
+    
+    const message = {
+        text: text,
+        sender: currentUser.login,
+        receiver: currentChat.login,
+        time: getCurrentTime(),
+        type: 'text'
+    };
+    
+    try {
+        // Отправляем сообщение через Bot API
+        await sendMessageToBot(message);
         
-        // Сохраняем сообщение в историю текущего пользователя
-        chats[currentUser][currentChat].messages.push({
-            text: text,
-            type: 'sent',
-            time: time,
-            sender: currentUser
-        });
-        
-        // Сохраняем сообщение в историю получателя
-        if (chats[currentChat] && chats[currentChat][currentUser]) {
-            chats[currentChat][currentUser].messages.push({
-                text: text,
-                type: 'received',
-                time: time,
-                sender: currentUser
-            });
-        }
-        
-        // Добавляем в интерфейс
-        addMessageToContainer(text, 'sent', time);
+        // Добавляем сообщение в интерфейс
+        addMessageToUI(text, 'sent', message.time);
         messageInput.value = '';
         
         // Обновляем последнее сообщение в списке контактов
-        updateLastMessage(currentChat, text);
+        updateLastMessage(currentChat.login, text);
         
-        // Имитация ответа через 1-3 секунды
-        setTimeout(() => {
-            const responses = ['Принято', 'Понял', 'Выполняю', 'На связи'];
-            const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-            
-            if (chats[currentUser][currentChat]) {
-                chats[currentUser][currentChat].messages.push({
-                    text: randomResponse,
-                    type: 'received',
-                    time: getCurrentTime(),
-                    sender: currentChat
-                });
-                
-                addMessageToContainer(randomResponse, 'received', getCurrentTime());
-                updateLastMessage(currentChat, randomResponse);
-            }
-        }, 1000 + Math.random() * 2000);
+        // Имитируем ответ
+        simulateResponse();
+        
+    } catch (error) {
+        console.error('Ошибка отправки сообщения:', error);
+        // Все равно показываем сообщение в интерфейсе
+        addMessageToUI(text, 'sent', message.time);
+        messageInput.value = '';
+        simulateResponse();
     }
 }
 
-// Добавление сообщения в контейнер
-function addMessageToContainer(text, type, time) {
+// Отправка сообщения через Bot API
+async function sendMessageToBot(message) {
+    // Форматируем сообщение для парсинга
+    const formattedText = `${message.sender}|${message.receiver}|${message.text}`;
+    
+    const response = await fetch(`https://api.telegram.org/bot${CONFIG.BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            chat_id: CONFIG.demoChatIds[message.receiver],
+            text: formattedText,
+            parse_mode: 'HTML'
+        })
+    });
+    
+    const data = await response.json();
+    
+    if (!data.ok) {
+        throw new Error(data.description);
+    }
+    
+    return data;
+}
+
+// Добавление сообщения в интерфейс
+function addMessageToUI(text, type, time) {
     const messagesContainer = document.getElementById('messagesContainer');
+    
+    // Убираем welcome сообщение если есть
+    const welcomeMsg = messagesContainer.querySelector('.welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     
@@ -272,9 +378,29 @@ function addMessageToContainer(text, type, time) {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+// Имитация ответа
+function simulateResponse() {
+    if (!currentChat) return;
+    
+    setTimeout(() => {
+        const responses = [
+            'Понял!',
+            'Принято!', 
+            'Работаем!',
+            'Ясно!',
+            'Хорошо!',
+            'Сделано!'
+        ];
+        const response = responses[Math.floor(Math.random() * responses.length)];
+        
+        addMessageToUI(response, 'received', getCurrentTime());
+        updateLastMessage(currentChat.login, response);
+    }, 1000 + Math.random() * 2000);
+}
+
 // Обновление последнего сообщения в списке контактов
-function updateLastMessage(chatId, message) {
-    const contactElement = document.querySelector(`[data-chat="${chatId}"]`);
+function updateLastMessage(contactId, message) {
+    const contactElement = document.querySelector(`[data-user-id="${contactId}"]`);
     if (contactElement) {
         const lastMessageElement = contactElement.querySelector('.last-message');
         if (lastMessageElement) {
@@ -283,48 +409,66 @@ function updateLastMessage(chatId, message) {
     }
 }
 
-// Получение текущего времени
+// Запуск опроса новых сообщений
+function startMessagePolling() {
+    // Проверяем новые сообщения каждые 5 секунд
+    messageInterval = setInterval(async () => {
+        if (currentChat) {
+            await loadChatHistory(currentChat.login);
+        }
+    }, 5000);
+}
+
+// Вспомогательные функции
 function getCurrentTime() {
     const now = new Date();
     return now.getHours().toString().padStart(2, '0') + ':' + 
            now.getMinutes().toString().padStart(2, '0');
 }
 
-// Обновление заголовка чата
-function updateChatHeader(name, chatId) {
-    document.getElementById('partnerName').textContent = name;
-    document.getElementById('partnerAvatar').textContent = chatId;
+function showWelcomeMessage() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    messagesContainer.innerHTML = `
+        <div class="welcome-message">
+            <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
+            <div class="welcome-text">Wolf Messenger готов к работе</div>
+            <div class="welcome-subtext">Выберите контакт для начала общения</div>
+        </div>
+    `;
 }
 
-// Кнопка "Назад" для мобильных
+function showPage(pageId) {
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active');
+    });
+    document.getElementById(pageId).classList.add('active');
+}
+
 function goBack() {
     if (window.innerWidth <= 768) {
         hideChatWindow();
     }
 }
 
-// Показать окно чата (для мобильных)
 function showChatWindow() {
     document.querySelector('.contacts-panel').style.display = 'none';
-    document.querySelector('.chat-window').classList.add('active');
+    document.querySelector('.chat-window').style.display = 'flex';
 }
 
-// Скрыть окно чата (для мобильных)
 function hideChatWindow() {
     document.querySelector('.contacts-panel').style.display = 'flex';
-    document.querySelector('.chat-window').classList.remove('active');
+    document.querySelector('.chat-window').style.display = 'none';
 }
-
-// Обработчик изменения размера окна
-window.addEventListener('resize', function() {
-    if (window.innerWidth > 768) {
-        document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.chat-window').classList.add('active');
-    }
-});
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', function() {
     tg.ready();
     initApp();
+});
+
+// Очистка при закрытии
+window.addEventListener('beforeunload', function() {
+    if (messageInterval) {
+        clearInterval(messageInterval);
+    }
 });
