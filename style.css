@@ -589,43 +589,6 @@ body {
 .page.active {
     animation: slideIn 0.3s ease-out;
 }
-/* ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК */
-@media (min-width: 769px) {
-    body {
-        min-width: 800px !important;
-        overflow: hidden !important;
-    }
-    
-    #app {
-        display: flex !important;
-        min-width: 800px !important;
-    }
-    
-    .contacts-panel {
-        display: flex !important;
-        width: 35% !important;
-        min-width: 280px !important;
-    }
-    
-    .chat-window {
-        display: flex !important;
-        width: 65% !important;
-        min-width: 520px !important;
-    }
-    
-    .header-back {
-        display: none !important;
-    }
-    
-    /* Запрещаем скрывать панели */
-    .contacts-panel[style*="display: none"] {
-        display: flex !important;
-    }
-    
-    .chat-window[style*="display: none"] {
-        display: flex !important;
-    }
-}
 
 /* Гарантируем что приложение всегда на весь экран */
 #app {
