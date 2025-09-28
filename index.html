@@ -36,12 +36,15 @@
             </div>
             
             <div class="contacts-list" id="contactsList">
-                <!-- Контакты будут генерироваться автоматически -->
+                <div class="loading">Загрузка контактов...</div>
             </div>
             
             <div class="user-profile">
-                <div class="profile-avatar" id="currentUserAvatar">ID</div>
-                <div class="profile-name" id="currentUserName">Идентифицирован</div>
+                <div class="profile-avatar" id="currentUserAvatar">?</div>
+                <div class="profile-info">
+                    <div class="profile-name" id="currentUserName">Не авторизован</div>
+                    <div class="profile-status" id="currentUserStatus">offline</div>
+                </div>
             </div>
         </div>
 
@@ -54,22 +57,26 @@
                     </svg>
                 </div>
                 <div class="chat-partner">
-                    <div class="partner-avatar" id="partnerAvatar">247</div>
+                    <div class="partner-avatar" id="partnerAvatar">?</div>
                     <div class="partner-info">
-                        <div class="partner-name" id="partnerName">Агент 247</div>
-                        <div class="partner-status">online</div>
+                        <div class="partner-name" id="partnerName">Выберите чат</div>
+                        <div class="partner-status" id="partnerStatus">offline</div>
                     </div>
                 </div>
             </div>
             
             <div class="messages-container" id="messagesContainer">
-                <!-- Сообщения будут добавляться здесь -->
+                <div class="welcome-message">
+                    <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
+                    <div class="welcome-text">Wolf Messenger готов к работе</div>
+                    <div class="welcome-subtext">Выберите контакт для начала общения</div>
+                </div>
             </div>
             
             <div class="input-container">
                 <div class="message-input-wrapper">
-                    <input type="text" class="message-input" id="messageInput" placeholder="Сообщение...">
-                    <button class="send-button" onclick="sendMessage()">
+                    <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
+                    <button class="send-button" onclick="sendMessage()" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                             <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
                         </svg>
