@@ -14,6 +14,7 @@ const CONFIG = {
 
 let currentUser = null;
 let currentChat = null;
+let isChatOpen = false; // Флаг для отслеживания открытого чата
 
 // Инициализация приложения
 function initApp() {
@@ -38,6 +39,17 @@ function initInterface() {
                 sendMessage();
             }
         });
+        
+        // Следим за фокусом в поле ввода
+        messageInput.addEventListener('focus', function() {
+            console.log('Поле ввода получило фокус');
+            // На мобильных устройствах при фокусе на поле ввода
+            // мы должны оставаться в окне чата
+            if (window.innerWidth <= 768 && currentChat) {
+                isChatOpen = true;
+                showChatWindow();
+            }
+        });
     }
     
     window.addEventListener('resize', handleResize);
@@ -46,7 +58,7 @@ function initInterface() {
 
 function handleResize() {
     if (window.innerWidth > 768) {
-        // PC режим
+        // PC режим - всегда показываем обе панели
         document.querySelector('.contacts-panel').style.display = 'flex';
         document.querySelector('.contacts-panel').style.width = '35%';
         document.querySelector('.chat-window').style.display = 'flex';
@@ -54,10 +66,36 @@ function handleResize() {
         document.querySelector('.header-back').style.display = 'none';
     } else {
         // Мобильный режим
-        document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.contacts-panel').style.width = '100%';
-        document.querySelector('.chat-window').style.display = 'none';
-        document.querySelector('.header-back').style.display = 'block';
+        const contactsPanel = document.querySelector('.contacts-panel');
+        const chatWindow = document.querySelector('.chat-window');
+        const headerBack = document.querySelector('.header-back');
+        
+        if (contactsPanel) {
+            contactsPanel.style.display = 'flex';
+            contactsPanel.style.width = '100%';
+        }
+        
+        if (headerBack) {
+            headerBack.style.display = 'block';
+        }
+        
+        // На мобильных устройствах показываем либо список контактов, либо чат
+        // в зависимости от того, открыт ли чат
+        if (chatWindow) {
+            if (isChatOpen && currentChat) {
+                // Если чат открыт и есть текущий чат - показываем окно чата
+                chatWindow.style.display = 'flex';
+                if (contactsPanel) {
+                    contactsPanel.style.display = 'none';
+                }
+            } else {
+                // Если чат не открыт - показываем список контактов
+                chatWindow.style.display = 'none';
+                if (contactsPanel) {
+                    contactsPanel.style.display = 'flex';
+                }
+            }
+        }
     }
 }
 
@@ -162,6 +200,7 @@ function openChat(contact) {
     }
     
     currentChat = contact;
+    isChatOpen = true; // Устанавливаем флаг что чат открыт
     
     const partnerAvatar = document.getElementById('partnerAvatar');
     const partnerName = document.getElementById('partnerName');
@@ -343,16 +382,19 @@ function showPage(pageId) {
 
 function goBack() {
     if (window.innerWidth <= 768) {
+        isChatOpen = false; // Сбрасываем флаг при возврате к списку контактов
         hideChatWindow();
     }
 }
 
 function showChatWindow() {
+    isChatOpen = true;
     document.querySelector('.contacts-panel').style.display = 'none';
     document.querySelector('.chat-window').style.display = 'flex';
 }
 
 function hideChatWindow() {
+    isChatOpen = false;
     document.querySelector('.contacts-panel').style.display = 'flex';
     document.querySelector('.chat-window').style.display = 'none';
 }
@@ -380,6 +422,7 @@ function checkAuthOnLoad() {
 function logout() {
     currentUser = null;
     currentChat = null;
+    isChatOpen = false;
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
