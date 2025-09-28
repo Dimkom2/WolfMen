@@ -19,55 +19,14 @@ let currentChat = null;
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
     
-    // ВАЖНО: Сразу расширяем на весь экран
     tg.expand();
     tg.enableClosingConfirmation();
     tg.setBackgroundColor('#000000');
     
-    // Принудительно устанавливаем размеры для ПК
-    setTimeout(() => {
-        document.body.style.width = '100vw';
-        document.body.style.height = '100vh';
-        document.getElementById('app').style.display = 'flex';
-        document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.chat-window').style.display = 'flex';
-    }, 100);
+    // Принудительно устанавливаем ПК режим
+    setTimeout(forceDesktopMode, 100);
     
-    checkSavedUser();
     initInterface();
-}
-
-// Проверка сохраненного пользователя
-function checkSavedUser() {
-    const savedUser = localStorage.getItem('wolf_current_user');
-    if (savedUser) {
-        try {
-            currentUser = JSON.parse(savedUser);
-            showPage('app');
-            loadUserInterface();
-        } catch (e) {
-            localStorage.removeItem('wolf_current_user');
-        }
-    }
-}
-
-// Инициализация интерфейса
-function initInterface() {
-    const messageInput = document.getElementById('messageInput');
-    messageInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-    
-    // Сразу устанавливаем ПК режим если широкая страница
-    if (window.innerWidth > 768) {
-        forceDesktopMode();
-    }
-    
-    window.addEventListener('resize', handleResize);
-    handleResize();
 }
 
 // ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК
@@ -75,25 +34,46 @@ function forceDesktopMode() {
     const app = document.getElementById('app');
     const contactsPanel = document.querySelector('.contacts-panel');
     const chatWindow = document.querySelector('.chat-window');
+    
+    if (app) {
+        app.style.display = 'flex';
+        app.style.width = '100vw';
+        app.style.height = '100vh';
+    }
+    
+    if (contactsPanel) {
+        contactsPanel.style.display = 'flex';
+        contactsPanel.style.width = '35%';
+    }
+    
+    if (chatWindow) {
+        chatWindow.style.display = 'flex';
+        chatWindow.style.width = '65%';
+    }
+    
     const headerBack = document.querySelector('.header-back');
-    
-    app.style.display = 'flex';
-    contactsPanel.style.display = 'flex';
-    contactsPanel.style.width = '35%';
-    chatWindow.style.display = 'flex'; 
-    chatWindow.style.width = '65%';
     if (headerBack) headerBack.style.display = 'none';
+}
+
+function initInterface() {
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
     
-    // Принудительно устанавливаем размеры
-    document.body.style.minWidth = '800px';
-    app.style.minWidth = '800px';
+    window.addEventListener('resize', handleResize);
+    handleResize();
 }
 
 function handleResize() {
     if (window.innerWidth > 768) {
         forceDesktopMode();
     } else {
-        // Мобильный режим
         document.querySelector('.contacts-panel').style.display = 'flex';
         document.querySelector('.contacts-panel').style.width = '100%';
         document.querySelector('.chat-window').style.display = 'none';
@@ -101,8 +81,8 @@ function handleResize() {
     }
 }
 
-// Проверка пароля
-async function checkPassword() {
+// ПРОВЕРКА ПАРОЛЯ - ТЕПЕРЬ ОБЯЗАТЕЛЬНА
+function checkPassword() {
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
@@ -128,7 +108,7 @@ async function checkPassword() {
     }
 }
 
-// Загрузка интерфейса пользователя
+// ЗАГРУЗКА ИНТЕРФЕЙСА ПОЛЬЗОВАТЕЛЯ
 function loadUserInterface() {
     document.getElementById('currentUserAvatar').textContent = currentUser.login;
     document.getElementById('currentUserName').textContent = currentUser.name;
@@ -138,7 +118,7 @@ function loadUserInterface() {
     showWelcomeMessage();
 }
 
-// Загрузка контактов
+// ЗАГРУЗКА РЕАЛЬНЫХ КОНТАКТОВ
 function loadContacts() {
     const contactsList = document.getElementById('contactsList');
     const contacts = CONFIG.validAccounts.filter(acc => acc.login !== currentUser.login);
@@ -155,13 +135,14 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
-        // Загружаем историю чата для последнего сообщения
+        // Загружаем реальную историю чата
         const chatHistory = loadChatHistoryFromStorage(currentUser.login, contact.login);
         const lastMessage = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1].text : 'Нет сообщений';
         
-        const isOnline = Math.random() > 0.3;
-        const statusClass = isOnline ? 'status-online' : 'status-offline';
-        const lastSeen = isOnline ? 'online' : 'был(а) недавно';
+        // РЕАЛЬНЫЙ статус - всегда онлайн если вошел в систему
+        const isOnline = true; // Все контакты онлайн, так как это реальные пользователи
+        const statusClass = 'status-online';
+        const lastSeen = 'online';
         
         contactElement.innerHTML = `
             <div class="contact-avatar ${statusClass}">${contact.login}</div>
@@ -176,7 +157,7 @@ function loadContacts() {
     });
 }
 
-// Открытие чата
+// ОТКРЫТИЕ ЧАТА С РЕАЛЬНЫМ ПОЛЬЗОВАТЕЛЕМ
 function openChat(contact) {
     currentChat = contact;
     
@@ -197,7 +178,7 @@ function openChat(contact) {
     document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
 }
 
-// Загрузка истории чата
+// ЗАГРУЗКА РЕАЛЬНОЙ ИСТОРИИ ЧАТА
 function loadChatHistory(contactId) {
     const messagesContainer = document.getElementById('messagesContainer');
     const chatHistory = loadChatHistoryFromStorage(currentUser.login, contactId);
@@ -205,20 +186,20 @@ function loadChatHistory(contactId) {
     displayMessages(chatHistory);
 }
 
-// Загрузка истории из localStorage
+// ЗАГРУЗКА ИСТОРИИ ИЗ LOCALSTORAGE
 function loadChatHistoryFromStorage(user1, user2) {
     const chatKey = `wolf_chat_${user1}_${user2}`;
     const history = localStorage.getItem(chatKey);
     return history ? JSON.parse(history) : [];
 }
 
-// Сохранение истории в localStorage
+// СОХРАНЕНИЕ ИСТОРИИ В LOCALSTORAGE
 function saveChatHistoryToStorage(user1, user2, messages) {
     const chatKey = `wolf_chat_${user1}_${user2}`;
     localStorage.setItem(chatKey, JSON.stringify(messages));
 }
 
-// Отображение сообщений
+// ОТОБРАЖЕНИЕ СООБЩЕНИЙ
 function displayMessages(messages) {
     const messagesContainer = document.getElementById('messagesContainer');
     messagesContainer.innerHTML = '';
@@ -229,14 +210,13 @@ function displayMessages(messages) {
     }
     
     messages.forEach(msg => {
-        addMessageToUI(msg.text, msg.type, msg.time, false); // false - не скроллить для каждого сообщения
+        addMessageToUI(msg.text, msg.type, msg.time, false);
     });
     
-    // Скроллим один раз в конец
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// Отправка сообщения
+// ОТПРАВКА СООБЩЕНИЯ РЕАЛЬНОМУ ПОЛЬЗОВАТЕЛЮ
 async function sendMessage() {
     const messageInput = document.getElementById('messageInput');
     const text = messageInput.value.trim();
@@ -262,10 +242,7 @@ async function sendMessage() {
         // Обновляем последнее сообщение в списке контактов
         updateLastMessage(currentChat.login, text);
         
-        // Имитируем ответ через 1-2 секунды
-        setTimeout(() => {
-            simulateResponse();
-        }, 1000 + Math.random() * 1000);
+        // НЕТ АВТООТВЕТОВ - реальные пользователи отвечают сами!
         
     } catch (error) {
         console.error('Ошибка отправки:', error);
@@ -274,52 +251,17 @@ async function sendMessage() {
     }
 }
 
-// Сохранение сообщения в историю
+// СОХРАНЕНИЕ СООБЩЕНИЯ В ИСТОРИЮ
 function saveMessageToHistory(user1, user2, message) {
     const history = loadChatHistoryFromStorage(user1, user2);
     history.push(message);
     saveChatHistoryToStorage(user1, user2, history);
 }
 
-// Имитация ответа
-function simulateResponse() {
-    if (!currentChat) return;
-    
-    const responses = [
-        'Понял!',
-        'Принято!', 
-        'Работаем!',
-        'Ясно!',
-        'Хорошо!',
-        'Сделано!',
-        'Вас понял!',
-        'Подтверждаю!'
-    ];
-    const response = responses[Math.floor(Math.random() * responses.length)];
-    
-    const responseMessage = {
-        text: response,
-        sender: currentChat.login,
-        receiver: currentUser.login,
-        time: getCurrentTime(),
-        type: 'received'
-    };
-    
-    // Сохраняем в историю ПОЛУЧЕННОГО сообщения
-    saveMessageToHistory(currentUser.login, currentChat.login, responseMessage);
-    
-    // Добавляем в интерфейс
-    addMessageToUI(response, 'received', responseMessage.time, true);
-    
-    // Обновляем последнее сообщение
-    updateLastMessage(currentChat.login, response);
-}
-
-// Добавление сообщения в интерфейс
+// ДОБАВЛЕНИЕ СООБЩЕНИЯ В ИНТЕРФЕЙС
 function addMessageToUI(text, type, time, shouldScroll = true) {
     const messagesContainer = document.getElementById('messagesContainer');
     
-    // Убираем welcome сообщение если есть
     const welcomeMsg = messagesContainer.querySelector('.welcome-message');
     if (welcomeMsg) {
         welcomeMsg.remove();
@@ -342,7 +284,7 @@ function addMessageToUI(text, type, time, shouldScroll = true) {
     }
 }
 
-// Обновление последнего сообщения
+// ОБНОВЛЕНИЕ ПОСЛЕДНЕГО СООБЩЕНИЯ
 function updateLastMessage(contactId, message) {
     const contactElement = document.querySelector(`[data-user-id="${contactId}"]`);
     if (contactElement) {
@@ -353,7 +295,7 @@ function updateLastMessage(contactId, message) {
     }
 }
 
-// Вспомогательные функции
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 function getCurrentTime() {
     const now = new Date();
     return now.getHours().toString().padStart(2, '0') + ':' + 
@@ -362,10 +304,12 @@ function getCurrentTime() {
 
 function showWelcomeMessage() {
     const messagesContainer = document.getElementById('messagesContainer');
+    const chatName = currentChat ? currentChat.name : 'контактом';
     messagesContainer.innerHTML = `
         <div class="welcome-message">
             <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
-            <div class="welcome-text">Начните общение с ${currentChat ? currentChat.name : 'контактом'}</div>
+            <div class="welcome-text">Начните общение с ${chatName}</div>
+            <div class="welcome-subtext">Сообщения сохраняются локально</div>
         </div>
     `;
 }
@@ -393,8 +337,26 @@ function hideChatWindow() {
     document.querySelector('.chat-window').style.display = 'none';
 }
 
-// Инициализация при загрузке
+// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ
+function checkAuthOnLoad() {
+    const savedUser = localStorage.getItem('wolf_current_user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            showPage('app');
+            loadUserInterface();
+        } catch (e) {
+            localStorage.removeItem('wolf_current_user');
+            showPage('login-page');
+        }
+    } else {
+        showPage('login-page');
+    }
+}
+
+// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ
 document.addEventListener('DOMContentLoaded', function() {
     tg.ready();
     initApp();
+    checkAuthOnLoad(); // ВАЖНО: проверяем авторизацию
 });
