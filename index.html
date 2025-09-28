@@ -35,27 +35,13 @@
                 </div>
             </div>
             
-            <div class="contacts-list">
-                <div class="contact active" data-chat="247">
-                    <div class="contact-avatar">247</div>
-                    <div class="contact-info">
-                        <div class="contact-name">Агент 247</div>
-                        <div class="last-message">Онлайн</div>
-                    </div>
-                </div>
-                
-                <div class="contact" data-chat="org">
-                    <div class="contact-avatar">ORG</div>
-                    <div class="contact-info">
-                        <div class="contact-name">Организатор</div>
-                        <div class="last-message">Онлайн</div>
-                    </div>
-                </div>
+            <div class="contacts-list" id="contactsList">
+                <!-- Контакты будут генерироваться автоматически -->
             </div>
             
             <div class="user-profile">
-                <div class="profile-avatar">ID</div>
-                <div class="profile-name">Идентифицирован</div>
+                <div class="profile-avatar" id="currentUserAvatar">ID</div>
+                <div class="profile-name" id="currentUserName">Идентифицирован</div>
             </div>
         </div>
 
@@ -82,8 +68,8 @@
             
             <div class="input-container">
                 <div class="message-input-wrapper">
-                    <input type="text" class="message-input" placeholder="Сообщение...">
-                    <button class="send-button">
+                    <input type="text" class="message-input" id="messageInput" placeholder="Сообщение...">
+                    <button class="send-button" onclick="sendMessage()">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                             <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
                         </svg>
