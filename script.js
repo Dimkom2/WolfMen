@@ -1,5 +1,11 @@
-// Инициализация Telegram Mini Apps
-const tg = window.Telegram.WebApp;
+// Проверяем, находимся ли мы в Telegram
+const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp;
+const tg = isTelegram ? window.Telegram.WebApp : {
+    expand: () => console.log('Telegram: expand'),
+    enableClosingConfirmation: () => console.log('Telegram: enableClosingConfirmation'),
+    setBackgroundColor: () => console.log('Telegram: setBackgroundColor'),
+    ready: () => console.log('Telegram: ready')
+};
 
 // Конфигурация
 const CONFIG = {
@@ -18,10 +24,13 @@ let currentChat = null;
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
+    console.log('Режим:', isTelegram ? 'Telegram' : 'Браузер');
     
-    tg.expand();
-    tg.enableClosingConfirmation();
-    tg.setBackgroundColor('#000000');
+    if (isTelegram) {
+        tg.expand();
+        tg.enableClosingConfirmation();
+        tg.setBackgroundColor('#000000');
+    }
     
     // Принудительно устанавливаем ПК режим
     setTimeout(forceDesktopMode, 100);
@@ -97,6 +106,8 @@ function checkPassword() {
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
+    console.log('Попытка входа:', login);
+
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
 
     if (isValid) {
@@ -112,10 +123,11 @@ function checkPassword() {
         
         showPage('app');
         loadUserInterface();
+        console.log('Успешный вход:', currentUser.name);
         
     } else {
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
-        // Очищаем поля при ошибке
+        console.log('Ошибка входа для:', login);
         document.getElementById('password').value = '';
     }
 }
@@ -371,21 +383,11 @@ function hideChatWindow() {
     document.querySelector('.chat-window').style.display = 'none';
 }
 
-// ФУНКЦИЯ ВЫХОДА (добавьте кнопку выхода в интерфейс)
-function logout() {
-    currentUser = null;
-    currentChat = null;
-    localStorage.removeItem('wolf_current_user');
-    showPage('login-page');
-    
-    // Очищаем поля ввода
-    document.getElementById('login').value = '';
-    document.getElementById('password').value = '';
-}
-
 // ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
 function checkAuthOnLoad() {
     const savedUser = localStorage.getItem('wolf_current_user');
+    console.log('Проверка авторизации:', savedUser);
+    
     if (savedUser) {
         try {
             currentUser = JSON.parse(savedUser);
@@ -405,10 +407,14 @@ function checkAuthOnLoad() {
 
 // ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM загружен');
+    
     // Показываем страницу входа по умолчанию
     showPage('login-page');
     
-    // Инициализируем Telegram Web App
-    tg.ready();
+    // Инициализируем приложение
+    if (isTelegram) {
+        tg.ready();
+    }
     initApp();
 });
