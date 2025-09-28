@@ -27,6 +27,9 @@ function initApp() {
     setTimeout(forceDesktopMode, 100);
     
     initInterface();
+    
+    // ВАЖНО: Проверяем авторизацию ПОСЛЕ инициализации
+    checkAuthOnLoad();
 }
 
 // ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК
@@ -65,6 +68,13 @@ function initInterface() {
             }
         });
     }
+    
+    // Добавляем обработчик для кнопки входа по Enter
+    document.getElementById('password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            checkPassword();
+        }
+    });
     
     window.addEventListener('resize', handleResize);
     handleResize();
@@ -105,11 +115,19 @@ function checkPassword() {
         
     } else {
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
+        // Очищаем поля при ошибке
+        document.getElementById('password').value = '';
     }
 }
 
 // ЗАГРУЗКА ИНТЕРФЕЙСА ПОЛЬЗОВАТЕЛЯ
 function loadUserInterface() {
+    if (!currentUser) {
+        // Если пользователь не авторизован, показываем страницу входа
+        showPage('login-page');
+        return;
+    }
+    
     document.getElementById('currentUserAvatar').textContent = currentUser.login;
     document.getElementById('currentUserName').textContent = currentUser.name;
     document.getElementById('currentUserStatus').textContent = 'online';
@@ -121,6 +139,12 @@ function loadUserInterface() {
 // ЗАГРУЗКА РЕАЛЬНЫХ КОНТАКТОВ
 function loadContacts() {
     const contactsList = document.getElementById('contactsList');
+    
+    if (!currentUser) {
+        contactsList.innerHTML = '<div class="loading">Ошибка авторизации</div>';
+        return;
+    }
+    
     const contacts = CONFIG.validAccounts.filter(acc => acc.login !== currentUser.login);
     
     if (contacts.length === 0) {
@@ -159,6 +183,11 @@ function loadContacts() {
 
 // ОТКРЫТИЕ ЧАТА С РЕАЛЬНЫМ ПОЛЬЗОВАТЕЛЕМ
 function openChat(contact) {
+    if (!currentUser) {
+        showPage('login-page');
+        return;
+    }
+    
     currentChat = contact;
     
     document.getElementById('partnerAvatar').textContent = contact.login;
@@ -218,6 +247,11 @@ function displayMessages(messages) {
 
 // ОТПРАВКА СООБЩЕНИЯ РЕАЛЬНОМУ ПОЛЬЗОВАТЕЛЮ
 async function sendMessage() {
+    if (!currentUser || !currentChat) {
+        showPage('login-page');
+        return;
+    }
+    
     const messageInput = document.getElementById('messageInput');
     const text = messageInput.value.trim();
     
@@ -337,7 +371,19 @@ function hideChatWindow() {
     document.querySelector('.chat-window').style.display = 'none';
 }
 
-// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ
+// ФУНКЦИЯ ВЫХОДА (добавьте кнопку выхода в интерфейс)
+function logout() {
+    currentUser = null;
+    currentChat = null;
+    localStorage.removeItem('wolf_current_user');
+    showPage('login-page');
+    
+    // Очищаем поля ввода
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
+}
+
+// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
 function checkAuthOnLoad() {
     const savedUser = localStorage.getItem('wolf_current_user');
     if (savedUser) {
@@ -345,18 +391,24 @@ function checkAuthOnLoad() {
             currentUser = JSON.parse(savedUser);
             showPage('app');
             loadUserInterface();
+            console.log('Пользователь авторизован:', currentUser.name);
         } catch (e) {
+            console.error('Ошибка при загрузке пользователя:', e);
             localStorage.removeItem('wolf_current_user');
             showPage('login-page');
         }
     } else {
+        console.log('Пользователь не авторизован');
         showPage('login-page');
     }
 }
 
-// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ
+// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
 document.addEventListener('DOMContentLoaded', function() {
+    // Показываем страницу входа по умолчанию
+    showPage('login-page');
+    
+    // Инициализируем Telegram Web App
     tg.ready();
     initApp();
-    checkAuthOnLoad(); // ВАЖНО: проверяем авторизацию
 });
