@@ -19,30 +19,9 @@ let currentChat = null;
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger для TMA...');
     
-    // Инициализация Telegram Web App (с проверкой поддержки функций)
-    try {
-        tg.expand();
-        console.log('TMA: expand успешно');
-    } catch (e) {
-        console.log('TMA: expand не поддерживается');
-    }
-    
-    try {
-        tg.enableClosingConfirmation();
-        console.log('TMA: enableClosingConfirmation успешно');
-    } catch (e) {
-        console.log('TMA: enableClosingConfirmation не поддерживается');
-    }
-    
-    try {
-        tg.setBackgroundColor('#000000');
-        console.log('TMA: setBackgroundColor успешно');
-    } catch (e) {
-        console.log('TMA: setBackgroundColor не поддерживается');
-    }
-    
+    // Инициализация Telegram Web App
+    tg.expand();
     tg.ready();
-    console.log('TMA: ready вызван');
     
     initInterface();
     checkAuthOnLoad();
@@ -51,56 +30,23 @@ function initApp() {
 function initInterface() {
     console.log('Инициализация интерфейса...');
     
-    const messageInput = document.getElementById('messageInput');
-    if (messageInput) {
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-    }
-    
-    // Добавляем обработчик для кнопки входа по Enter
-    const passwordInput = document.getElementById('password');
-    if (passwordInput) {
-        passwordInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                console.log('Нажата Enter в поле пароля');
-                checkPassword();
-            }
-        });
-    }
-    
-    // Добавляем обработчик для кнопки входа
-    const loginButton = document.querySelector('.login-button');
-    if (loginButton) {
-        loginButton.addEventListener('click', function() {
-            console.log('Нажата кнопка Войти');
-            checkPassword();
-        });
-    }
-    
     // Принудительно устанавливаем ПК режим для TMA
     setTimeout(forceDesktopMode, 100);
 }
 
 // ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК ДЛЯ TMA
 function forceDesktopMode() {
-    console.log('Применение PC режима...');
     const contactsPanel = document.querySelector('.contacts-panel');
     const chatWindow = document.querySelector('.chat-window');
     
     if (contactsPanel) {
         contactsPanel.style.display = 'flex';
         contactsPanel.style.width = '35%';
-        console.log('Панель контактов настроена');
     }
     
     if (chatWindow) {
         chatWindow.style.display = 'flex';
         chatWindow.style.width = '65%';
-        console.log('Окно чата настроено');
     }
     
     const headerBack = document.querySelector('.header-back');
@@ -118,13 +64,6 @@ function checkPassword() {
     console.log('Введен логин:', login);
     console.log('Введен пароль:', password);
 
-    // Проверяем есть ли логин и пароль
-    if (!login || !password) {
-        console.log('Ошибка: логин или пароль пустые');
-        errorMessage.textContent = 'ОШИБКА: Введите логин и пароль';
-        return;
-    }
-
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
     console.log('Найден аккаунт:', isValid);
 
@@ -138,16 +77,9 @@ function checkPassword() {
             chatId: isValid.chatId
         };
         
-        console.log('Сохранение пользователя в localStorage:', currentUser);
         localStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
-        
-        // Проверяем что сохранилось
-        const saved = localStorage.getItem('wolf_current_user');
-        console.log('Проверка сохранения:', saved);
-        
         showPage('app');
         loadUserInterface();
-        console.log('Переход на главную страницу');
         
     } else {
         console.log('❌ Ошибка авторизации');
@@ -161,45 +93,30 @@ function loadUserInterface() {
     console.log('Загрузка интерфейса пользователя...');
     
     if (!currentUser) {
-        console.log('Ошибка: currentUser не определен');
         showPage('login-page');
         return;
     }
-    
-    console.log('Текущий пользователь:', currentUser);
     
     const currentUserAvatar = document.getElementById('currentUserAvatar');
     const currentUserName = document.getElementById('currentUserName');
     const currentUserStatus = document.getElementById('currentUserStatus');
     
-    if (currentUserAvatar) {
-        currentUserAvatar.textContent = currentUser.login;
-        console.log('Аватар установлен:', currentUser.login);
-    }
-    if (currentUserName) {
-        currentUserName.textContent = currentUser.name;
-        console.log('Имя установлено:', currentUser.name);
-    }
-    if (currentUserStatus) {
-        currentUserStatus.textContent = 'online';
-        console.log('Статус установлен: online');
-    }
+    if (currentUserAvatar) currentUserAvatar.textContent = currentUser.login;
+    if (currentUserName) currentUserName.textContent = currentUser.name;
+    if (currentUserStatus) currentUserStatus.textContent = 'online';
     
     loadContacts();
 }
 
 // ЗАГРУЗКА КОНТАКТОВ
 function loadContacts() {
-    console.log('Загрузка контактов...');
     const contactsList = document.getElementById('contactsList');
     
     if (!currentUser || !contactsList) {
-        console.log('Ошибка: нет currentUser или contactsList');
         return;
     }
     
     const contacts = CONFIG.validAccounts.filter(acc => acc.login !== currentUser.login);
-    console.log('Доступные контакты:', contacts);
     
     if (contacts.length === 0) {
         contactsList.innerHTML = '<div class="loading">Нет доступных контактов</div>';
@@ -224,28 +141,19 @@ function loadContacts() {
             </div>
         `;
         
-        contactElement.addEventListener('click', () => {
-            console.log('Клик по контакту:', contact.name);
-            openChat(contact);
-        });
+        contactElement.addEventListener('click', () => openChat(contact));
         contactsList.appendChild(contactElement);
     });
-    
-    console.log('Контакты загружены');
 }
 
 // ОТКРЫТИЕ ЧАТА
 function openChat(contact) {
-    console.log('Открытие чата с:', contact.name);
-    
     if (!currentUser) {
-        console.log('Ошибка: пользователь не авторизован');
         showPage('login-page');
         return;
     }
     
     currentChat = contact;
-    console.log('Текущий чат установлен:', currentChat);
     
     const partnerAvatar = document.getElementById('partnerAvatar');
     const partnerName = document.getElementById('partnerName');
@@ -259,8 +167,6 @@ function openChat(contact) {
     if (messageInput) messageInput.disabled = false;
     if (sendButton) sendButton.disabled = false;
     
-    console.log('Интерфейс чата настроен');
-    
     loadChatHistory(contact.login);
     
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
@@ -270,12 +176,10 @@ function openChat(contact) {
 
 // ЗАГРУЗКА ИСТОРИИ ЧАТА
 function loadChatHistory(contactId) {
-    console.log('Загрузка истории чата с:', contactId);
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
     const chatHistory = loadChatHistoryFromStorage(currentUser.login, contactId);
-    console.log('Загружено сообщений:', chatHistory.length);
     displayMessages(chatHistory);
 }
 
@@ -286,7 +190,6 @@ function loadChatHistoryFromStorage(user1, user2) {
         const history = localStorage.getItem(chatKey);
         return history ? JSON.parse(history) : [];
     } catch (e) {
-        console.error('Ошибка загрузки истории:', e);
         return [];
     }
 }
@@ -322,10 +225,7 @@ function displayMessages(messages) {
 
 // ОТПРАВКА СООБЩЕНИЯ
 function sendMessage() {
-    console.log('Отправка сообщения...');
-    
     if (!currentUser || !currentChat) {
-        console.log('Ошибка: нет пользователя или чата');
         showPage('login-page');
         return;
     }
@@ -336,8 +236,6 @@ function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
-    console.log('Текст сообщения:', text);
-
     const message = {
         text: text,
         sender: currentUser.login,
@@ -346,17 +244,10 @@ function sendMessage() {
         type: 'sent'
     };
     
-    // Сохраняем в историю
     saveMessageToHistory(currentUser.login, currentChat.login, message);
-    
-    // Добавляем в интерфейс
     addMessageToUI(text, 'sent', message.time, true);
     messageInput.value = '';
-    
-    // Обновляем последнее сообщение
     updateLastMessage(currentChat.login, text);
-    
-    console.log('Сообщение отправлено');
 }
 
 // СОХРАНЕНИЕ СООБЩЕНИЯ В ИСТОРИЮ
@@ -426,8 +317,6 @@ function showWelcomeMessage() {
 }
 
 function showPage(pageId) {
-    console.log('Переключение на страницу:', pageId);
-    
     document.querySelectorAll('.page').forEach(page => {
         page.classList.remove('active');
     });
@@ -435,25 +324,20 @@ function showPage(pageId) {
     const pageElement = document.getElementById(pageId);
     if (pageElement) {
         pageElement.classList.add('active');
-        console.log('Страница активирована:', pageId);
     }
     
-    // Принудительно обновляем режим отображения для TMA
     setTimeout(forceDesktopMode, 50);
 }
 
 function goBack() {
-    // В TMA всегда показываем обе панели
     forceDesktopMode();
 }
 
 function showChatWindow() {
-    // В TMA всегда показываем обе панели
     forceDesktopMode();
 }
 
 function hideChatWindow() {
-    // В TMA всегда показываем обе панели
     forceDesktopMode();
 }
 
@@ -465,16 +349,12 @@ function checkAuthOnLoad() {
         
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
-            console.log('Пользователь найден:', currentUser);
             showPage('app');
             loadUserInterface();
-            console.log('Пользователь авторизован в TMA:', currentUser.name);
         } else {
-            console.log('Пользователь не авторизован в TMA');
             showPage('login-page');
         }
     } catch (e) {
-        console.error('Ошибка при проверке авторизации в TMA:', e);
         localStorage.removeItem('wolf_current_user');
         showPage('login-page');
     }
@@ -482,20 +362,16 @@ function checkAuthOnLoad() {
 
 // ФУНКЦИЯ ВЫХОДА ДЛЯ TMA
 function logout() {
-    console.log('Выход из системы...');
     currentUser = null;
     currentChat = null;
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
-    
-    // Очищаем поля ввода
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
-    console.log('Выход завершен');
 }
 
 // ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ДЛЯ TMA
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('=== DOM ЗАГРУЖЕН ДЛЯ TMA ===');
+    console.log('DOM загружен для TMA');
     initApp();
 });
