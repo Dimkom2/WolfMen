@@ -43,15 +43,15 @@ body {
 
 .login-container {
     width: 100%;
-    max-width: 320px;
+    max-width: 400px;
     padding: 0 40px;
     text-align: center;
 }
 
 .login-logo {
-    width: 120px;
-    height: 120px;
-    margin-bottom: 60px;
+    width: 180px;
+    height: 180px;
+    margin-bottom: 50px;
 }
 
 .input-group {
@@ -124,8 +124,8 @@ body {
 
 /* Панель контактов */
 .contacts-panel {
-    width: 30%;
-    min-width: 280px;
+    width: 35%;
+    min-width: 320px;
     background: #000000;
     color: #ffffff;
     display: flex;
@@ -149,21 +149,21 @@ body {
 }
 
 .panel-header {
-    padding: 24px 20px;
+    padding: 30px 24px;
 }
 
 .logo {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     font-weight: 600;
-    font-size: 16px;
+    font-size: 18px;
     letter-spacing: 1px;
 }
 
 .wolf-logo-small {
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
 }
 
 .contacts-list {
@@ -175,9 +175,10 @@ body {
 .contact {
     display: flex;
     align-items: center;
-    padding: 16px 20px;
+    padding: 18px 24px;
     cursor: pointer;
     transition: background 0.2s;
+    border-bottom: 1px solid #111;
 }
 
 .contact:hover {
@@ -189,16 +190,16 @@ body {
 }
 
 .contact-avatar {
-    width: 44px;
-    height: 44px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     background: #222222;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    margin-right: 12px;
+    margin-right: 16px;
     flex-shrink: 0;
 }
 
@@ -209,12 +210,12 @@ body {
 
 .contact-name {
     font-weight: 600;
-    font-size: 14px;
+    font-size: 15px;
     margin-bottom: 4px;
 }
 
 .last-message {
-    font-size: 12px;
+    font-size: 13px;
     color: #666666;
     white-space: nowrap;
     overflow: hidden;
@@ -235,27 +236,28 @@ body {
 .user-profile {
     display: flex;
     align-items: center;
-    padding: 20px;
+    padding: 24px;
     background: #000000;
+    border-top: 1px solid #111;
 }
 
 .profile-avatar {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background: #222222;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 12px;
     margin-right: 12px;
     flex-shrink: 0;
 }
 
 .profile-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
-    color: #666666;
+    color: #ffffff;
 }
 
 /* Окно чата */
@@ -271,14 +273,15 @@ body {
 .chat-header {
     display: flex;
     align-items: center;
-    padding: 20px 24px;
+    padding: 24px 30px;
     background: #000000;
+    border-bottom: 1px solid #111;
 }
 
 /* Кнопка назад в чате */
 .header-back {
     display: none;
-    margin-right: 12px;
+    margin-right: 16px;
     cursor: pointer;
 }
 
@@ -288,17 +291,17 @@ body {
 }
 
 .partner-avatar {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     background: #222222;
     color: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    margin-right: 12px;
+    margin-right: 16px;
 }
 
 .partner-info {
@@ -307,19 +310,19 @@ body {
 
 .partner-name {
     font-weight: 600;
-    font-size: 16px;
+    font-size: 17px;
     margin-bottom: 2px;
 }
 
 .partner-status {
-    font-size: 12px;
+    font-size: 13px;
     color: #666666;
 }
 
 .messages-container {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 30px;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -340,8 +343,8 @@ body {
 }
 
 .message-content {
-    padding: 12px 16px;
-    border-radius: 16px;
+    padding: 14px 18px;
+    border-radius: 18px;
     position: relative;
 }
 
@@ -356,7 +359,7 @@ body {
 }
 
 .message-text {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.4;
     margin-bottom: 4px;
 }
@@ -368,24 +371,25 @@ body {
 }
 
 .input-container {
-    padding: 20px 24px;
+    padding: 24px 30px;
     background: #000000;
+    border-top: 1px solid #111;
 }
 
 .message-input-wrapper {
     display: flex;
     align-items: center;
     background: #111111;
-    border-radius: 24px;
-    padding: 4px;
+    border-radius: 25px;
+    padding: 6px;
 }
 
 .message-input {
     flex: 1;
     border: none;
     background: transparent;
-    padding: 12px 16px;
-    font-size: 14px;
+    padding: 14px 20px;
+    font-size: 15px;
     font-family: 'Inter', sans-serif;
     outline: none;
     color: #ffffff;
@@ -396,8 +400,8 @@ body {
 }
 
 .send-button {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background: #ffffff;
     color: #000000;
@@ -443,6 +447,13 @@ body {
     
     .login-container {
         padding: 0 24px;
+        max-width: 320px;
+    }
+    
+    .login-logo {
+        width: 140px;
+        height: 140px;
+        margin-bottom: 40px;
     }
     
     .header-back {
@@ -450,7 +461,20 @@ body {
     }
     
     .chat-header {
-        padding: 16px 20px;
+        padding: 18px 20px;
+    }
+    
+    .panel-header {
+        padding: 20px;
+    }
+    
+    .logo {
+        font-size: 16px;
+    }
+    
+    .wolf-logo-small {
+        width: 28px;
+        height: 28px;
     }
 }
 
