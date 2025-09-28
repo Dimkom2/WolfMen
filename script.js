@@ -1,11 +1,5 @@
-// Проверяем, находимся ли мы в Telegram
-const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp;
-const tg = isTelegram ? window.Telegram.WebApp : {
-    expand: () => console.log('Telegram: expand'),
-    enableClosingConfirmation: () => console.log('Telegram: enableClosingConfirmation'),
-    setBackgroundColor: () => console.log('Telegram: setBackgroundColor'),
-    ready: () => console.log('Telegram: ready')
-};
+// Инициализация Telegram Mini Apps
+const tg = window.Telegram.WebApp;
 
 // Конфигурация
 const CONFIG = {
@@ -23,35 +17,47 @@ let currentChat = null;
 
 // Инициализация приложения
 function initApp() {
-    console.log('🚀 Инициализация Wolf Messenger...');
-    console.log('Режим:', isTelegram ? 'Telegram' : 'Браузер');
+    console.log('🚀 Инициализация Wolf Messenger для TMA...');
     
-    if (isTelegram) {
-        tg.expand();
-        tg.enableClosingConfirmation();
-        tg.setBackgroundColor('#000000');
-    }
-    
-    // Принудительно устанавливаем ПК режим
-    setTimeout(forceDesktopMode, 100);
+    // Инициализация Telegram Web App
+    tg.expand();
+    tg.enableClosingConfirmation();
+    tg.setBackgroundColor('#000000');
+    tg.ready();
     
     initInterface();
-    
-    // ВАЖНО: Проверяем авторизацию ПОСЛЕ инициализации
     checkAuthOnLoad();
 }
 
-// ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК
+function initInterface() {
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
+    
+    // Добавляем обработчик для кнопки входа по Enter
+    const passwordInput = document.getElementById('password');
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                checkPassword();
+            }
+        });
+    }
+    
+    // Принудительно устанавливаем ПК режим для TMA
+    setTimeout(forceDesktopMode, 100);
+}
+
+// ПРИНУДИТЕЛЬНЫЙ РЕЖИМ ПК ДЛЯ TMA
 function forceDesktopMode() {
-    const app = document.getElementById('app');
     const contactsPanel = document.querySelector('.contacts-panel');
     const chatWindow = document.querySelector('.chat-window');
-    
-    if (app) {
-        app.style.display = 'flex';
-        app.style.width = '100vw';
-        app.style.height = '100vh';
-    }
     
     if (contactsPanel) {
         contactsPanel.style.display = 'flex';
@@ -67,46 +73,13 @@ function forceDesktopMode() {
     if (headerBack) headerBack.style.display = 'none';
 }
 
-function initInterface() {
-    const messageInput = document.getElementById('messageInput');
-    if (messageInput) {
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-    }
-    
-    // Добавляем обработчик для кнопки входа по Enter
-    document.getElementById('password').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            checkPassword();
-        }
-    });
-    
-    window.addEventListener('resize', handleResize);
-    handleResize();
-}
-
-function handleResize() {
-    if (window.innerWidth > 768) {
-        forceDesktopMode();
-    } else {
-        document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.contacts-panel').style.width = '100%';
-        document.querySelector('.chat-window').style.display = 'none';
-        document.querySelector('.header-back').style.display = 'block';
-    }
-}
-
-// ПРОВЕРКА ПАРОЛЯ - ТЕПЕРЬ ОБЯЗАТЕЛЬНА
+// ПРОВЕРКА ПАРОЛЯ
 function checkPassword() {
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    console.log('Попытка входа:', login);
+    console.log('Попытка входа в TMA:', login);
 
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
 
@@ -123,11 +96,11 @@ function checkPassword() {
         
         showPage('app');
         loadUserInterface();
-        console.log('Успешный вход:', currentUser.name);
+        console.log('Успешный вход в TMA:', currentUser.name);
         
     } else {
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
-        console.log('Ошибка входа для:', login);
+        console.log('Ошибка входа в TMA для:', login);
         document.getElementById('password').value = '';
     }
 }
@@ -135,25 +108,26 @@ function checkPassword() {
 // ЗАГРУЗКА ИНТЕРФЕЙСА ПОЛЬЗОВАТЕЛЯ
 function loadUserInterface() {
     if (!currentUser) {
-        // Если пользователь не авторизован, показываем страницу входа
         showPage('login-page');
         return;
     }
     
-    document.getElementById('currentUserAvatar').textContent = currentUser.login;
-    document.getElementById('currentUserName').textContent = currentUser.name;
-    document.getElementById('currentUserStatus').textContent = 'online';
+    const currentUserAvatar = document.getElementById('currentUserAvatar');
+    const currentUserName = document.getElementById('currentUserName');
+    const currentUserStatus = document.getElementById('currentUserStatus');
+    
+    if (currentUserAvatar) currentUserAvatar.textContent = currentUser.login;
+    if (currentUserName) currentUserName.textContent = currentUser.name;
+    if (currentUserStatus) currentUserStatus.textContent = 'online';
     
     loadContacts();
-    showWelcomeMessage();
 }
 
-// ЗАГРУЗКА РЕАЛЬНЫХ КОНТАКТОВ
+// ЗАГРУЗКА КОНТАКТОВ
 function loadContacts() {
     const contactsList = document.getElementById('contactsList');
     
-    if (!currentUser) {
-        contactsList.innerHTML = '<div class="loading">Ошибка авторизации</div>';
+    if (!currentUser || !contactsList) {
         return;
     }
     
@@ -171,17 +145,11 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
-        // Загружаем реальную историю чата
         const chatHistory = loadChatHistoryFromStorage(currentUser.login, contact.login);
         const lastMessage = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1].text : 'Нет сообщений';
         
-        // РЕАЛЬНЫЙ статус - всегда онлайн если вошел в систему
-        const isOnline = true; // Все контакты онлайн, так как это реальные пользователи
-        const statusClass = 'status-online';
-        const lastSeen = 'online';
-        
         contactElement.innerHTML = `
-            <div class="contact-avatar ${statusClass}">${contact.login}</div>
+            <div class="contact-avatar status-online">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
                 <div class="last-message">${lastMessage}</div>
@@ -193,7 +161,7 @@ function loadContacts() {
     });
 }
 
-// ОТКРЫТИЕ ЧАТА С РЕАЛЬНЫМ ПОЛЬЗОВАТЕЛЕМ
+// ОТКРЫТИЕ ЧАТА
 function openChat(contact) {
     if (!currentUser) {
         showPage('login-page');
@@ -202,47 +170,61 @@ function openChat(contact) {
     
     currentChat = contact;
     
-    document.getElementById('partnerAvatar').textContent = contact.login;
-    document.getElementById('partnerName').textContent = contact.name;
-    document.getElementById('partnerStatus').textContent = 'online';
+    const partnerAvatar = document.getElementById('partnerAvatar');
+    const partnerName = document.getElementById('partnerName');
+    const partnerStatus = document.getElementById('partnerStatus');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.querySelector('.send-button');
     
-    document.getElementById('messageInput').disabled = false;
-    document.querySelector('.send-button').disabled = false;
+    if (partnerAvatar) partnerAvatar.textContent = contact.login;
+    if (partnerName) partnerName.textContent = contact.name;
+    if (partnerStatus) partnerStatus.textContent = 'online';
+    if (messageInput) messageInput.disabled = false;
+    if (sendButton) sendButton.disabled = false;
     
     loadChatHistory(contact.login);
     
-    if (window.innerWidth <= 768) {
-        showChatWindow();
-    }
-    
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
-    document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
+    const activeContact = document.querySelector(`[data-user-id="${contact.login}"]`);
+    if (activeContact) activeContact.classList.add('active');
 }
 
-// ЗАГРУЗКА РЕАЛЬНОЙ ИСТОРИИ ЧАТА
+// ЗАГРУЗКА ИСТОРИИ ЧАТА
 function loadChatHistory(contactId) {
     const messagesContainer = document.getElementById('messagesContainer');
-    const chatHistory = loadChatHistoryFromStorage(currentUser.login, contactId);
+    if (!messagesContainer) return;
     
+    const chatHistory = loadChatHistoryFromStorage(currentUser.login, contactId);
     displayMessages(chatHistory);
 }
 
 // ЗАГРУЗКА ИСТОРИИ ИЗ LOCALSTORAGE
 function loadChatHistoryFromStorage(user1, user2) {
-    const chatKey = `wolf_chat_${user1}_${user2}`;
-    const history = localStorage.getItem(chatKey);
-    return history ? JSON.parse(history) : [];
+    const chatKey = `wolf_chat_${[user1, user2].sort().join('_')}`;
+    try {
+        const history = localStorage.getItem(chatKey);
+        return history ? JSON.parse(history) : [];
+    } catch (e) {
+        console.error('Ошибка загрузки истории:', e);
+        return [];
+    }
 }
 
 // СОХРАНЕНИЕ ИСТОРИИ В LOCALSTORAGE
 function saveChatHistoryToStorage(user1, user2, messages) {
-    const chatKey = `wolf_chat_${user1}_${user2}`;
-    localStorage.setItem(chatKey, JSON.stringify(messages));
+    const chatKey = `wolf_chat_${[user1, user2].sort().join('_')}`;
+    try {
+        localStorage.setItem(chatKey, JSON.stringify(messages));
+    } catch (e) {
+        console.error('Ошибка сохранения истории:', e);
+    }
 }
 
 // ОТОБРАЖЕНИЕ СООБЩЕНИЙ
 function displayMessages(messages) {
     const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
     messagesContainer.innerHTML = '';
     
     if (messages.length === 0) {
@@ -251,23 +233,24 @@ function displayMessages(messages) {
     }
     
     messages.forEach(msg => {
-        addMessageToUI(msg.text, msg.type, msg.time, false);
+        addMessageToUI(msg.text, msg.sender === currentUser.login ? 'sent' : 'received', msg.time, false);
     });
     
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// ОТПРАВКА СООБЩЕНИЯ РЕАЛЬНОМУ ПОЛЬЗОВАТЕЛЮ
-async function sendMessage() {
+// ОТПРАВКА СООБЩЕНИЯ
+function sendMessage() {
     if (!currentUser || !currentChat) {
         showPage('login-page');
         return;
     }
     
     const messageInput = document.getElementById('messageInput');
-    const text = messageInput.value.trim();
+    if (!messageInput) return;
     
-    if (!text || !currentChat) return;
+    const text = messageInput.value.trim();
+    if (!text) return;
 
     const message = {
         text: text,
@@ -277,24 +260,15 @@ async function sendMessage() {
         type: 'sent'
     };
     
-    try {
-        // Сохраняем в историю ОТПРАВЛЕННОГО сообщения
-        saveMessageToHistory(currentUser.login, currentChat.login, message);
-        
-        // Добавляем в интерфейс
-        addMessageToUI(text, 'sent', message.time, true);
-        messageInput.value = '';
-        
-        // Обновляем последнее сообщение в списке контактов
-        updateLastMessage(currentChat.login, text);
-        
-        // НЕТ АВТООТВЕТОВ - реальные пользователи отвечают сами!
-        
-    } catch (error) {
-        console.error('Ошибка отправки:', error);
-        addMessageToUI(text, 'sent', message.time, true);
-        messageInput.value = '';
-    }
+    // Сохраняем в историю
+    saveMessageToHistory(currentUser.login, currentChat.login, message);
+    
+    // Добавляем в интерфейс
+    addMessageToUI(text, 'sent', message.time, true);
+    messageInput.value = '';
+    
+    // Обновляем последнее сообщение
+    updateLastMessage(currentChat.login, text);
 }
 
 // СОХРАНЕНИЕ СООБЩЕНИЯ В ИСТОРИЮ
@@ -307,6 +281,7 @@ function saveMessageToHistory(user1, user2, message) {
 // ДОБАВЛЕНИЕ СООБЩЕНИЯ В ИНТЕРФЕЙС
 function addMessageToUI(text, type, time, shouldScroll = true) {
     const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
     
     const welcomeMsg = messagesContainer.querySelector('.welcome-message');
     if (welcomeMsg) {
@@ -350,6 +325,8 @@ function getCurrentTime() {
 
 function showWelcomeMessage() {
     const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
     const chatName = currentChat ? currentChat.name : 'контактом';
     messagesContainer.innerHTML = `
         <div class="welcome-message">
@@ -364,57 +341,67 @@ function showPage(pageId) {
     document.querySelectorAll('.page').forEach(page => {
         page.classList.remove('active');
     });
-    document.getElementById(pageId).classList.add('active');
+    
+    const pageElement = document.getElementById(pageId);
+    if (pageElement) {
+        pageElement.classList.add('active');
+    }
+    
+    // Принудительно обновляем режим отображения для TMA
+    setTimeout(forceDesktopMode, 50);
 }
 
 function goBack() {
-    if (window.innerWidth <= 768) {
-        hideChatWindow();
-    }
+    // В TMA всегда показываем обе панели
+    forceDesktopMode();
 }
 
 function showChatWindow() {
-    document.querySelector('.contacts-panel').style.display = 'none';
-    document.querySelector('.chat-window').style.display = 'flex';
+    // В TMA всегда показываем обе панели
+    forceDesktopMode();
 }
 
 function hideChatWindow() {
-    document.querySelector('.contacts-panel').style.display = 'flex';
-    document.querySelector('.chat-window').style.display = 'none';
+    // В TMA всегда показываем обе панели
+    forceDesktopMode();
 }
 
-// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
+// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ
 function checkAuthOnLoad() {
-    const savedUser = localStorage.getItem('wolf_current_user');
-    console.log('Проверка авторизации:', savedUser);
-    
-    if (savedUser) {
-        try {
+    try {
+        const savedUser = localStorage.getItem('wolf_current_user');
+        console.log('Проверка авторизации в TMA:', savedUser);
+        
+        if (savedUser) {
             currentUser = JSON.parse(savedUser);
             showPage('app');
             loadUserInterface();
-            console.log('Пользователь авторизован:', currentUser.name);
-        } catch (e) {
-            console.error('Ошибка при загрузке пользователя:', e);
-            localStorage.removeItem('wolf_current_user');
+            console.log('Пользователь авторизован в TMA:', currentUser.name);
+        } else {
+            console.log('Пользователь не авторизован в TMA');
             showPage('login-page');
         }
-    } else {
-        console.log('Пользователь не авторизован');
+    } catch (e) {
+        console.error('Ошибка при проверке авторизации в TMA:', e);
+        localStorage.removeItem('wolf_current_user');
         showPage('login-page');
     }
 }
 
-// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ - ИСПРАВЛЕННАЯ
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM загружен');
-    
-    // Показываем страницу входа по умолчанию
+// ФУНКЦИЯ ВЫХОДА ДЛЯ TMA
+function logout() {
+    currentUser = null;
+    currentChat = null;
+    localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     
-    // Инициализируем приложение
-    if (isTelegram) {
-        tg.ready();
-    }
+    // Очищаем поля ввода
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
+}
+
+// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ДЛЯ TMA
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM загружен для TMA');
     initApp();
 });
