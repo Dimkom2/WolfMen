@@ -1,6 +1,22 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
+// Firebase конфиг
+const firebaseConfig = {
+    apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
+    authDomain: "wolf-messendger.firebaseapp.com",
+    projectId: "wolf-messendger",
+    storageBucket: "wolf-messendger.firebasestorage.app",
+    messagingSenderId: "454406992399",
+    appId: "1:454406992399:web:866c45d70ea30236a7297a"
+};
+
+// Инициализация Firebase
+const { initializeApp, getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } = window.firebaseModules;
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
 const CONFIG = {
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
@@ -12,18 +28,17 @@ const CONFIG = {
 let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
-let messageHistory = {};
+let unsubscribeMessages = null;
 
 // Инициализация приложения
 function initApp() {
-    console.log('🚀 Инициализация Wolf Messenger для TMA...');
+    console.log('🚀 Инициализация Wolf Messenger с Firebase...');
     
     tg.expand();
     tg.ready();
     
     initInterface();
     checkAuthOnLoad();
-    loadAllChatHistory();
 }
 
 function initInterface() {
@@ -134,16 +149,11 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
-        const chatKey = getChatKey(currentUser.chatId, contact.chatId);
-        const lastMessage = messageHistory[chatKey] && messageHistory[chatKey].length > 0 
-            ? messageHistory[chatKey][messageHistory[chatKey].length - 1].text 
-            : 'Нет сообщений';
-        
         contactElement.innerHTML = `
             <div class="contact-avatar status-online">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">${lastMessage}</div>
+                <div class="last-message">Нажмите чтобы начать общение</div>
             </div>
         `;
         
@@ -178,52 +188,56 @@ function openChat(contact) {
     document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
 }
 
+// ЗАГРУЗКА ИСТОРИИ ЧАТА ИЗ FIREBASE
+async function loadChatHistory() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+    
+    // Отписываемся от предыдущих слушателей
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+    }
+    
+    try {
+        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        
+        // Запрос сообщений для этого чата
+        const q = query(
+            collection(db, "messages"),
+            where("chatKey", "==", chatKey),
+            orderBy("timestamp", "asc")
+        );
+        
+        // Слушаем изменения в реальном времени
+        unsubscribeMessages = onSnapshot(q, (snapshot) => {
+            const messages = [];
+            snapshot.forEach((doc) => {
+                messages.push({ id: doc.id, ...doc.data() });
+            });
+            
+            displayMessages(messages);
+        });
+        
+    } catch (error) {
+        console.error('Ошибка загрузки истории:', error);
+        messagesContainer.innerHTML = `
+            <div class="welcome-message">
+                <div class="welcome-text">Ошибка загрузки истории</div>
+                <div class="welcome-subtext">Проверьте подключение к интернету</div>
+            </div>
+        `;
+    }
+}
+
 // КЛЮЧ ДЛЯ ЧАТА
 function getChatKey(user1, user2) {
     return [user1, user2].sort().join('_');
 }
 
-// ЗАГРУЗКА ВСЕЙ ИСТОРИИ ЧАТОВ
-function loadAllChatHistory() {
-    try {
-        const savedHistory = localStorage.getItem('wolf_chat_history');
-        if (savedHistory) {
-            messageHistory = JSON.parse(savedHistory);
-        }
-    } catch (e) {
-        messageHistory = {};
-    }
-}
-
-// СОХРАНЕНИЕ ИСТОРИИ ЧАТОВ
-function saveAllChatHistory() {
-    localStorage.setItem('wolf_chat_history', JSON.stringify(messageHistory));
-}
-
-// ЗАГРУЗКА ИСТОРИИ КОНКРЕТНОГО ЧАТА
-function loadChatHistory() {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
-    
-    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-    const history = messageHistory[chatKey] || [];
-    
-    messagesContainer.innerHTML = '';
-    
-    if (history.length === 0) {
-        showWelcomeMessage();
-        return;
-    }
-    
-    history.forEach(msg => {
-        addMessageToUI(msg.text, msg.sender === currentUser.chatId ? 'sent' : 'received', msg.time, false);
-    });
-    
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-// ОТПРАВКА СООБЩЕНИЯ
-function sendMessage() {
+// ОТПРАВКА СООБЩЕНИЯ В FIREBASE
+async function sendMessage() {
     if (!currentUser || !currentChat) {
         showPage('login-page');
         return;
@@ -235,51 +249,54 @@ function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
-    const message = {
-        text: text,
-        sender: currentUser.chatId,
-        receiver: currentChat.chatId,
-        time: getCurrentTime(),
-        type: 'sent'
-    };
-
-    // Сохраняем сообщение в историю
-    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-    if (!messageHistory[chatKey]) {
-        messageHistory[chatKey] = [];
-    }
-    messageHistory[chatKey].push(message);
-    saveAllChatHistory();
-    
-    // Показываем в интерфейсе
-    addMessageToUI(text, 'sent', message.time, true);
+    // Показываем сообщение сразу (оптимистичный UI)
+    addMessageToUI(text, 'sent', getCurrentTime(), true);
     messageInput.value = '';
-    
-    // Обновляем последнее сообщение в списке контактов
-    updateLastMessage(currentChat.chatId, text);
-    
-    // Отправляем уведомление через Telegram Bot (опционально)
-    sendTelegramNotification(message);
-}
 
-// ОТПРАВКА УВЕДОМЛЕНИЯ ЧЕРЕЗ БОТА
-function sendTelegramNotification(message) {
     try {
-        const notificationData = {
-            action: 'new_message',
-            from: currentUser.name,
-            to: currentChat.name, 
-            text: message.text,
-            chat_key: getChatKey(currentUser.chatId, currentChat.chatId)
-        };
+        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // Отправляем данные боту (если нужно)
-        tg.sendData(JSON.stringify(notificationData));
-        console.log('Уведомление отправлено боту:', notificationData);
+        // Сохраняем в Firebase
+        await addDoc(collection(db, "messages"), {
+            from: currentUser.chatId,
+            fromName: currentUser.name,
+            to: currentChat.chatId,
+            toName: currentChat.name,
+            text: text,
+            chatKey: chatKey,
+            timestamp: serverTimestamp()
+        });
+        
+        console.log('✅ Сообщение сохранено в Firebase');
+        
+        // Обновляем последнее сообщение в списке контактов
+        updateLastMessage(currentChat.chatId, text);
         
     } catch (error) {
-        console.log('Уведомление не отправлено (бот не настроен)');
+        console.error('❌ Ошибка отправки:', error);
+        addMessageToUI('❌ Ошибка отправки сообщения', 'error', getCurrentTime(), true);
     }
+}
+
+// ОТОБРАЖЕНИЕ СООБЩЕНИЙ
+function displayMessages(messages) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    messagesContainer.innerHTML = '';
+    
+    if (messages.length === 0) {
+        showWelcomeMessage();
+        return;
+    }
+    
+    messages.forEach(msg => {
+        const messageType = msg.from === currentUser.chatId ? 'sent' : 'received';
+        const time = msg.timestamp ? formatFirebaseTime(msg.timestamp) : getCurrentTime();
+        addMessageToUI(msg.text, messageType, time, false);
+    });
+    
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
 // ДОБАВЛЕНИЕ СООБЩЕНИЯ В ИНТЕРФЕЙС
@@ -327,6 +344,15 @@ function getCurrentTime() {
            now.getMinutes().toString().padStart(2, '0');
 }
 
+function formatFirebaseTime(timestamp) {
+    if (timestamp && timestamp.toDate) {
+        const date = timestamp.toDate();
+        return date.getHours().toString().padStart(2, '0') + ':' + 
+               date.getMinutes().toString().padStart(2, '0');
+    }
+    return getCurrentTime();
+}
+
 function showWelcomeMessage() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
@@ -336,7 +362,7 @@ function showWelcomeMessage() {
         <div class="welcome-message">
             <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
             <div class="welcome-text">Начните общение с ${chatName}</div>
-            <div class="welcome-subtext">Сообщения сохраняются локально</div>
+            <div class="welcome-subtext">Сообщения сохраняются глобально в Firebase</div>
         </div>
     `;
 }
@@ -388,6 +414,13 @@ function logout() {
     currentUser = null;
     currentChat = null;
     isChatOpen = false;
+    
+    // Отписываемся от слушателя Firebase
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
+    
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
