@@ -87,12 +87,11 @@
         </div>
     </div>
 
-    <!-- Firebase и основной скрипт -->
+    <!-- Firebase -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js';
         import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js';
         
-        // Firebase конфиг
         const firebaseConfig = {
             apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
             authDomain: "wolf-messendger.firebaseapp.com",
@@ -102,21 +101,22 @@
             appId: "1:454406992399:web:866c45d70ea30236a7297a"
         };
 
-        // Инициализация Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Делаем Firebase доступным глобально
-        window.firebaseApp = app;
+        window.firebaseReady = true;
         window.firebaseDb = db;
-        window.firebaseModules = {
+        window.firebaseFunctions = {
             collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp
         };
 
-        // Загружаем основной скрипт после Firebase
-        const script = document.createElement('script');
-        script.src = 'script.js';
-        document.body.appendChild(script);
+        console.log('✅ Firebase загружен и готов!');
+        
+        if (window.initApp) {
+            window.initApp();
+        }
     </script>
+
+    <script src="script.js"></script>
 </body>
 </html>
