@@ -7,6 +7,24 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js';
+        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js';
+        
+        window.firebaseModules = {
+            initializeApp,
+            getFirestore, 
+            collection,
+            addDoc,
+            query,
+            where,
+            orderBy,
+            onSnapshot,
+            serverTimestamp
+        };
+    </script>
 </head>
 <body>
     <!-- Страница входа -->
