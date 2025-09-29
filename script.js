@@ -1,21 +1,9 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
-// Firebase конфиг
-const firebaseConfig = {
-    apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
-    authDomain: "wolf-messendger.firebaseapp.com",
-    projectId: "wolf-messendger",
-    storageBucket: "wolf-messendger.firebasestorage.app",
-    messagingSenderId: "454406992399",
-    appId: "1:454406992399:web:866c45d70ea30236a7297a"
-};
-
-// Инициализация Firebase
-const { initializeApp, getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } = window.firebaseModules;
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Firebase модули
+const { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } = window.firebaseModules;
+const db = window.firebaseDb;
 
 const CONFIG = {
     validAccounts: [
@@ -92,13 +80,18 @@ function handleResize() {
 
 // ПРОВЕРКА ПАРОЛЯ
 function checkPassword() {
+    console.log('=== checkPassword вызвана ===');
+    
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
+    console.log('Логин:', login, 'Пароль:', password);
+
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
 
     if (isValid) {
+        console.log('✅ Авторизация успешна!');
         errorMessage.textContent = '';
         currentUser = {
             login: login,
@@ -111,6 +104,7 @@ function checkPassword() {
         loadUserInterface();
         
     } else {
+        console.log('❌ Ошибка авторизации');
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
         document.getElementById('password').value = '';
     }
@@ -429,5 +423,6 @@ function logout() {
 
 // ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM загружен, инициализация приложения...');
     initApp();
 });
