@@ -1,10 +1,7 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
-// Конфигурация
 const CONFIG = {
-    BOT_TOKEN: '8414918030:AAG32jw18WxxZ-ALE1SN0rd0BI8m4nzlS5Q',
-    
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
         { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
@@ -14,23 +11,22 @@ const CONFIG = {
 
 let currentUser = null;
 let currentChat = null;
-let isChatOpen = false; // Флаг для отслеживания открытого чата
+let isChatOpen = false;
+let messageHistory = {};
 
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger для TMA...');
     
-    // Инициализация Telegram Web App
     tg.expand();
     tg.ready();
     
     initInterface();
     checkAuthOnLoad();
+    loadAllChatHistory();
 }
 
 function initInterface() {
-    console.log('Инициализация интерфейса...');
-    
     const messageInput = document.getElementById('messageInput');
     if (messageInput) {
         messageInput.addEventListener('keypress', function(e) {
@@ -40,11 +36,7 @@ function initInterface() {
             }
         });
         
-        // Следим за фокусом в поле ввода
         messageInput.addEventListener('focus', function() {
-            console.log('Поле ввода получило фокус');
-            // На мобильных устройствах при фокусе на поле ввода
-            // мы должны оставаться в окне чата
             if (window.innerWidth <= 768 && currentChat) {
                 isChatOpen = true;
                 showChatWindow();
@@ -58,42 +50,26 @@ function initInterface() {
 
 function handleResize() {
     if (window.innerWidth > 768) {
-        // PC режим - всегда показываем обе панели
         document.querySelector('.contacts-panel').style.display = 'flex';
         document.querySelector('.contacts-panel').style.width = '35%';
         document.querySelector('.chat-window').style.display = 'flex';
         document.querySelector('.chat-window').style.width = '65%';
         document.querySelector('.header-back').style.display = 'none';
     } else {
-        // Мобильный режим
         const contactsPanel = document.querySelector('.contacts-panel');
         const chatWindow = document.querySelector('.chat-window');
         const headerBack = document.querySelector('.header-back');
         
-        if (contactsPanel) {
-            contactsPanel.style.display = 'flex';
-            contactsPanel.style.width = '100%';
-        }
+        if (contactsPanel) contactsPanel.style.display = 'flex';
+        if (headerBack) headerBack.style.display = 'block';
         
-        if (headerBack) {
-            headerBack.style.display = 'block';
-        }
-        
-        // На мобильных устройствах показываем либо список контактов, либо чат
-        // в зависимости от того, открыт ли чат
         if (chatWindow) {
             if (isChatOpen && currentChat) {
-                // Если чат открыт и есть текущий чат - показываем окно чата
                 chatWindow.style.display = 'flex';
-                if (contactsPanel) {
-                    contactsPanel.style.display = 'none';
-                }
+                if (contactsPanel) contactsPanel.style.display = 'none';
             } else {
-                // Если чат не открыт - показываем список контактов
                 chatWindow.style.display = 'none';
-                if (contactsPanel) {
-                    contactsPanel.style.display = 'flex';
-                }
+                if (contactsPanel) contactsPanel.style.display = 'flex';
             }
         }
     }
@@ -101,22 +77,14 @@ function handleResize() {
 
 // ПРОВЕРКА ПАРОЛЯ
 function checkPassword() {
-    console.log('=== ФУНКЦИЯ checkPassword ВЫЗВАНА ===');
-    
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    console.log('Введен логин:', login);
-    console.log('Введен пароль:', password);
-
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
-    console.log('Найден аккаунт:', isValid);
 
     if (isValid) {
-        console.log('✅ Авторизация успешна!');
         errorMessage.textContent = '';
-        
         currentUser = {
             login: login,
             name: isValid.name,
@@ -128,28 +96,21 @@ function checkPassword() {
         loadUserInterface();
         
     } else {
-        console.log('❌ Ошибка авторизации');
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
         document.getElementById('password').value = '';
     }
 }
 
-// ЗАГРУЗКА ИНТЕРФЕЙСА ПОЛЬЗОВАТЕЛЯ
+// ЗАГРУЗКА ИНТЕРФЕЙСА
 function loadUserInterface() {
-    console.log('Загрузка интерфейса пользователя...');
-    
     if (!currentUser) {
         showPage('login-page');
         return;
     }
     
-    const currentUserAvatar = document.getElementById('currentUserAvatar');
-    const currentUserName = document.getElementById('currentUserName');
-    const currentUserStatus = document.getElementById('currentUserStatus');
-    
-    if (currentUserAvatar) currentUserAvatar.textContent = currentUser.login;
-    if (currentUserName) currentUserName.textContent = currentUser.name;
-    if (currentUserStatus) currentUserStatus.textContent = 'online';
+    document.getElementById('currentUserAvatar').textContent = currentUser.login;
+    document.getElementById('currentUserName').textContent = currentUser.name;
+    document.getElementById('currentUserStatus').textContent = 'online';
     
     loadContacts();
 }
@@ -157,10 +118,7 @@ function loadUserInterface() {
 // ЗАГРУЗКА КОНТАКТОВ
 function loadContacts() {
     const contactsList = document.getElementById('contactsList');
-    
-    if (!currentUser || !contactsList) {
-        return;
-    }
+    if (!currentUser || !contactsList) return;
     
     const contacts = CONFIG.validAccounts.filter(acc => acc.login !== currentUser.login);
     
@@ -176,8 +134,10 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
-        const chatHistory = loadChatHistoryFromStorage(currentUser.login, contact.login);
-        const lastMessage = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1].text : 'Нет сообщений';
+        const chatKey = getChatKey(currentUser.chatId, contact.chatId);
+        const lastMessage = messageHistory[chatKey] && messageHistory[chatKey].length > 0 
+            ? messageHistory[chatKey][messageHistory[chatKey].length - 1].text 
+            : 'Нет сообщений';
         
         contactElement.innerHTML = `
             <div class="contact-avatar status-online">${contact.login}</div>
@@ -200,75 +160,63 @@ function openChat(contact) {
     }
     
     currentChat = contact;
-    isChatOpen = true; // Устанавливаем флаг что чат открыт
+    isChatOpen = true;
     
-    const partnerAvatar = document.getElementById('partnerAvatar');
-    const partnerName = document.getElementById('partnerName');
-    const partnerStatus = document.getElementById('partnerStatus');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.querySelector('.send-button');
+    document.getElementById('partnerAvatar').textContent = contact.login;
+    document.getElementById('partnerName').textContent = contact.name;
+    document.getElementById('partnerStatus').textContent = 'online';
+    document.getElementById('messageInput').disabled = false;
+    document.querySelector('.send-button').disabled = false;
     
-    if (partnerAvatar) partnerAvatar.textContent = contact.login;
-    if (partnerName) partnerName.textContent = contact.name;
-    if (partnerStatus) partnerStatus.textContent = 'online';
-    if (messageInput) messageInput.disabled = false;
-    if (sendButton) sendButton.disabled = false;
-    
-    loadChatHistory(contact.login);
+    loadChatHistory();
     
     if (window.innerWidth <= 768) {
         showChatWindow();
     }
     
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
-    const activeContact = document.querySelector(`[data-user-id="${contact.login}"]`);
-    if (activeContact) activeContact.classList.add('active');
+    document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
 }
 
-// ЗАГРУЗКА ИСТОРИИ ЧАТА
-function loadChatHistory(contactId) {
+// КЛЮЧ ДЛЯ ЧАТА
+function getChatKey(user1, user2) {
+    return [user1, user2].sort().join('_');
+}
+
+// ЗАГРУЗКА ВСЕЙ ИСТОРИИ ЧАТОВ
+function loadAllChatHistory() {
+    try {
+        const savedHistory = localStorage.getItem('wolf_chat_history');
+        if (savedHistory) {
+            messageHistory = JSON.parse(savedHistory);
+        }
+    } catch (e) {
+        messageHistory = {};
+    }
+}
+
+// СОХРАНЕНИЕ ИСТОРИИ ЧАТОВ
+function saveAllChatHistory() {
+    localStorage.setItem('wolf_chat_history', JSON.stringify(messageHistory));
+}
+
+// ЗАГРУЗКА ИСТОРИИ КОНКРЕТНОГО ЧАТА
+function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
-    const chatHistory = loadChatHistoryFromStorage(currentUser.login, contactId);
-    displayMessages(chatHistory);
-}
-
-// ЗАГРУЗКА ИСТОРИИ ИЗ LOCALSTORAGE
-function loadChatHistoryFromStorage(user1, user2) {
-    const chatKey = `wolf_chat_${[user1, user2].sort().join('_')}`;
-    try {
-        const history = localStorage.getItem(chatKey);
-        return history ? JSON.parse(history) : [];
-    } catch (e) {
-        return [];
-    }
-}
-
-// СОХРАНЕНИЕ ИСТОРИИ В LOCALSTORAGE
-function saveChatHistoryToStorage(user1, user2, messages) {
-    const chatKey = `wolf_chat_${[user1, user2].sort().join('_')}`;
-    try {
-        localStorage.setItem(chatKey, JSON.stringify(messages));
-    } catch (e) {
-        console.error('Ошибка сохранения истории:', e);
-    }
-}
-
-// ОТОБРАЖЕНИЕ СООБЩЕНИЙ
-function displayMessages(messages) {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
+    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    const history = messageHistory[chatKey] || [];
     
     messagesContainer.innerHTML = '';
     
-    if (messages.length === 0) {
+    if (history.length === 0) {
         showWelcomeMessage();
         return;
     }
     
-    messages.forEach(msg => {
-        addMessageToUI(msg.text, msg.sender === currentUser.login ? 'sent' : 'received', msg.time, false);
+    history.forEach(msg => {
+        addMessageToUI(msg.text, msg.sender === currentUser.chatId ? 'sent' : 'received', msg.time, false);
     });
     
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -289,23 +237,49 @@ function sendMessage() {
 
     const message = {
         text: text,
-        sender: currentUser.login,
-        receiver: currentChat.login,
+        sender: currentUser.chatId,
+        receiver: currentChat.chatId,
         time: getCurrentTime(),
         type: 'sent'
     };
+
+    // Сохраняем сообщение в историю
+    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    if (!messageHistory[chatKey]) {
+        messageHistory[chatKey] = [];
+    }
+    messageHistory[chatKey].push(message);
+    saveAllChatHistory();
     
-    saveMessageToHistory(currentUser.login, currentChat.login, message);
+    // Показываем в интерфейсе
     addMessageToUI(text, 'sent', message.time, true);
     messageInput.value = '';
-    updateLastMessage(currentChat.login, text);
+    
+    // Обновляем последнее сообщение в списке контактов
+    updateLastMessage(currentChat.chatId, text);
+    
+    // Отправляем уведомление через Telegram Bot (опционально)
+    sendTelegramNotification(message);
 }
 
-// СОХРАНЕНИЕ СООБЩЕНИЯ В ИСТОРИЮ
-function saveMessageToHistory(user1, user2, message) {
-    const history = loadChatHistoryFromStorage(user1, user2);
-    history.push(message);
-    saveChatHistoryToStorage(user1, user2, history);
+// ОТПРАВКА УВЕДОМЛЕНИЯ ЧЕРЕЗ БОТА
+function sendTelegramNotification(message) {
+    try {
+        const notificationData = {
+            action: 'new_message',
+            from: currentUser.name,
+            to: currentChat.name, 
+            text: message.text,
+            chat_key: getChatKey(currentUser.chatId, currentChat.chatId)
+        };
+        
+        // Отправляем данные боту (если нужно)
+        tg.sendData(JSON.stringify(notificationData));
+        console.log('Уведомление отправлено боту:', notificationData);
+        
+    } catch (error) {
+        console.log('Уведомление не отправлено (бот не настроен)');
+    }
 }
 
 // ДОБАВЛЕНИЕ СООБЩЕНИЯ В ИНТЕРФЕЙС
@@ -368,21 +342,14 @@ function showWelcomeMessage() {
 }
 
 function showPage(pageId) {
-    document.querySelectorAll('.page').forEach(page => {
-        page.classList.remove('active');
-    });
-    
-    const pageElement = document.getElementById(pageId);
-    if (pageElement) {
-        pageElement.classList.add('active');
-    }
-    
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
     handleResize();
 }
 
 function goBack() {
     if (window.innerWidth <= 768) {
-        isChatOpen = false; // Сбрасываем флаг при возврате к списку контактов
+        isChatOpen = false;
         hideChatWindow();
     }
 }
@@ -399,12 +366,10 @@ function hideChatWindow() {
     document.querySelector('.chat-window').style.display = 'none';
 }
 
-// ПРОВЕРКА АВТОРИЗАЦИИ ПРИ ЗАГРУЗКЕ
+// ПРОВЕРКА АВТОРИЗАЦИИ
 function checkAuthOnLoad() {
     try {
         const savedUser = localStorage.getItem('wolf_current_user');
-        console.log('Проверка авторизации в TMA:', savedUser);
-        
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
             showPage('app');
@@ -418,7 +383,7 @@ function checkAuthOnLoad() {
     }
 }
 
-// ФУНКЦИЯ ВЫХОДА ДЛЯ TMA
+// ВЫХОД
 function logout() {
     currentUser = null;
     currentChat = null;
@@ -429,8 +394,7 @@ function logout() {
     document.getElementById('password').value = '';
 }
 
-// ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ ДЛЯ TMA
+// ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM загружен для TMA');
     initApp();
 });
