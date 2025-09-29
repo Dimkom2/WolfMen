@@ -1,10 +1,6 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
-// Firebase модули
-const { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } = window.firebaseModules;
-const db = window.firebaseDb;
-
 const CONFIG = {
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
@@ -18,9 +14,30 @@ let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
 
+// Firebase функции
+function getFirebaseFunctions() {
+    if (!window.firebaseReady) {
+        throw new Error('Firebase еще не загружен');
+    }
+    return window.firebaseFunctions;
+}
+
+function getFirebaseDb() {
+    if (!window.firebaseReady) {
+        throw new Error('Firebase еще не загружен');
+    }
+    return window.firebaseDb;
+}
+
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger с Firebase...');
+    
+    if (!window.firebaseReady) {
+        console.log('⏳ Ожидаем загрузку Firebase...');
+        setTimeout(initApp, 100);
+        return;
+    }
     
     tg.expand();
     tg.ready();
@@ -189,22 +206,21 @@ async function loadChatHistory() {
     
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
     
-    // Отписываемся от предыдущих слушателей
     if (unsubscribeMessages) {
         unsubscribeMessages();
     }
     
     try {
+        const { collection, query, where, orderBy, onSnapshot } = getFirebaseFunctions();
+        const db = getFirebaseDb();
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // Запрос сообщений для этого чата
         const q = query(
             collection(db, "messages"),
             where("chatKey", "==", chatKey),
             orderBy("timestamp", "asc")
         );
         
-        // Слушаем изменения в реальном времени
         unsubscribeMessages = onSnapshot(q, (snapshot) => {
             const messages = [];
             snapshot.forEach((doc) => {
@@ -243,14 +259,14 @@ async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
-    // Показываем сообщение сразу (оптимистичный UI)
     addMessageToUI(text, 'sent', getCurrentTime(), true);
     messageInput.value = '';
 
     try {
+        const { collection, addDoc, serverTimestamp } = getFirebaseFunctions();
+        const db = getFirebaseDb();
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // Сохраняем в Firebase
         await addDoc(collection(db, "messages"), {
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -262,8 +278,6 @@ async function sendMessage() {
         });
         
         console.log('✅ Сообщение сохранено в Firebase');
-        
-        // Обновляем последнее сообщение в списке контактов
         updateLastMessage(currentChat.chatId, text);
         
     } catch (error) {
@@ -409,7 +423,6 @@ function logout() {
     currentChat = null;
     isChatOpen = false;
     
-    // Отписываемся от слушателя Firebase
     if (unsubscribeMessages) {
         unsubscribeMessages();
         unsubscribeMessages = null;
@@ -424,5 +437,6 @@ function logout() {
 // ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, инициализация приложения...');
+    window.initApp = initApp;
     initApp();
 });
