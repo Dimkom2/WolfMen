@@ -395,6 +395,11 @@ body {
     text-align: right;
 }
 
+.message.error .message-content {
+    background: #442222;
+    color: #ff6666;
+}
+
 .input-container {
     padding: 24px 30px;
     background: #000000;
