@@ -6,13 +6,24 @@
     <title>Wolf Messenger</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Экран загрузки -->
+    <div id="loading-page" class="page active">
+        <div class="loading-container">
+            <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
+            <div class="loading-text">Wolf Messenger</div>
+            <div class="loading-bar-container">
+                <div class="loading-bar-background"></div>
+                <div class="loading-bar-progress" id="loadingBar"></div>
+            </div>
+            <div class="loading-subtext" id="loadingStatus">Подключение к серверу...</div>
+        </div>
+    </div>
+
     <!-- Страница входа -->
-    <div id="login-page" class="page active">
+    <div id="login-page" class="page">
         <div class="login-container">
             <img src="wolf-logo.png" alt="Wolf Logo" class="login-logo">
             <div class="input-group">
@@ -89,6 +100,71 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <script>
+        // Firebase конфиг
+        const firebaseConfig = {
+            apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
+            authDomain: "wolf-messendger.firebaseapp.com",
+            projectId: "wolf-messendger",
+            storageBucket: "wolf-messendger.firebasestorage.app",
+            messagingSenderId: "454406992399",
+            appId: "1:454406992399:web:866c45d70ea30236a7297a"
+        };
+
+        // Функция обновления прогресса
+        function updateLoadingProgress(progress, status) {
+            const loadingBar = document.getElementById('loadingBar');
+            const loadingStatus = document.getElementById('loadingStatus');
+            
+            if (loadingBar) {
+                loadingBar.style.width = progress + '%';
+            }
+            if (loadingStatus) {
+                loadingStatus.textContent = status;
+            }
+        }
+
+        // Инициализируем Firebase с прогрессом
+        updateLoadingProgress(10, 'Инициализация Firebase...');
+        
+        try {
+            firebase.initializeApp(firebaseConfig);
+            updateLoadingProgress(40, 'Firebase подключен');
+            
+            // Загружаем основной скрипт
+            setTimeout(() => {
+                updateLoadingProgress(70, 'Загрузка приложения...');
+                const script = document.createElement('script');
+                script.src = 'script.js';
+                script.onload = function() {
+                    updateLoadingProgress(100, 'Готово!');
+                    setTimeout(() => {
+                        if (window.initApp) {
+                            window.initApp();
+                        }
+                    }, 500);
+                };
+                document.head.appendChild(script);
+            }, 800);
+            
+        } catch (error) {
+            console.error('Ошибка Firebase:', error);
+            updateLoadingProgress(100, 'Ошибка подключения');
+            setTimeout(() => {
+                const script = document.createElement('script');
+                script.src = 'script.js';
+                script.onload = function() {
+                    if (window.initApp) {
+                        window.initApp();
+                    }
+                };
+                document.head.appendChild(script);
+            }, 1000);
+        }
+    </script>
 </body>
 </html>
