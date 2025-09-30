@@ -6,6 +6,8 @@
     <title>Wolf Messenger</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -86,36 +88,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Firebase -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js';
-        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js';
-        
-        const firebaseConfig = {
-            apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
-            authDomain: "wolf-messendger.firebaseapp.com",
-            projectId: "wolf-messendger",
-            storageBucket: "wolf-messendger.firebasestorage.app",
-            messagingSenderId: "454406992399",
-            appId: "1:454406992399:web:866c45d70ea30236a7297a"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-
-        window.firebaseReady = true;
-        window.firebaseDb = db;
-        window.firebaseFunctions = {
-            collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp
-        };
-
-        console.log('✅ Firebase загружен и готов!');
-        
-        if (window.initApp) {
-            window.initApp();
-        }
-    </script>
 
     <script src="script.js"></script>
 </body>
