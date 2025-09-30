@@ -14,13 +14,9 @@ let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
 
-// Загружаем кэш из localStorage при старте
-let messageCache = JSON.parse(localStorage.getItem('wolf_message_cache') || '{}');
-
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
-    console.log('Загружен кэш сообщений:', Object.keys(messageCache).length, 'чатов');
     
     // Проверяем что Firebase загружен
     if (typeof firebase === 'undefined') {
@@ -88,16 +84,6 @@ function handleResize() {
     }
 }
 
-// СОХРАНЕНИЕ КЭША В LOCALSTORAGE
-function saveMessageCache() {
-    try {
-        localStorage.setItem('wolf_message_cache', JSON.stringify(messageCache));
-        console.log('💾 Кэш сообщений сохранен');
-    } catch (e) {
-        console.error('Ошибка сохранения кэша:', e);
-    }
-}
-
 // ПРОВЕРКА ПАРОЛЯ
 function checkPassword() {
     console.log('=== checkPassword вызвана ===');
@@ -116,7 +102,8 @@ function checkPassword() {
             chatId: isValid.chatId
         };
         
-        localStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        // НИКАКОГО LOCALSTORAGE - только сессия!
+        sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
         showPage('app');
         loadUserInterface();
         
@@ -159,17 +146,11 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
-        // Получаем последнее сообщение из кэша
-        const chatKey = getChatKey(currentUser.chatId, contact.chatId);
-        const lastMessage = messageCache[chatKey] && messageCache[chatKey].length > 0 
-            ? messageCache[chatKey][messageCache[chatKey].length - 1].text 
-            : 'Нажмите чтобы начать общение';
-        
         contactElement.innerHTML = `
             <div class="contact-avatar status-online">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">${lastMessage}</div>
+                <div class="last-message">Нажмите чтобы начать общение</div>
             </div>
         `;
         
@@ -209,21 +190,15 @@ function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
-    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
     
-    // Сначала показываем сообщения из кэша (если есть)
-    if (messageCache[chatKey] && messageCache[chatKey].length > 0) {
-        displayMessages(messageCache[chatKey]);
-    } else {
-        messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
-    }
-    
-    // Затем подписываемся на обновления
     if (unsubscribeMessages) {
         unsubscribeMessages();
     }
     
     try {
+        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        
         const q = firebase.firestore()
             .collection("messages")
             .where("chatKey", "==", chatKey)
@@ -235,38 +210,17 @@ function loadChatHistory() {
                 messages.push({ id: doc.id, ...doc.data() });
             });
             
-            // Сохраняем в кэш
-            messageCache[chatKey] = messages;
-            saveMessageCache(); // Сохраняем кэш в localStorage
-            
-            // Показываем сообщения
             displayMessages(messages);
-            
-            // Обновляем последнее сообщение в списке контактов
-            if (messages.length > 0) {
-                updateLastMessage(currentChat.chatId, messages[messages.length - 1].text);
-            }
-        }, (error) => {
-            console.error('Ошибка подписки:', error);
-            // Если ошибка, показываем сообщения из кэша
-            if (messageCache[chatKey]) {
-                displayMessages(messageCache[chatKey]);
-            }
         });
         
     } catch (error) {
         console.error('Ошибка загрузки истории:', error);
-        // Показываем сообщения из кэша при ошибке
-        if (messageCache[chatKey]) {
-            displayMessages(messageCache[chatKey]);
-        } else {
-            messagesContainer.innerHTML = `
-                <div class="welcome-message">
-                    <div class="welcome-text">Ошибка загрузки истории</div>
-                    <div class="welcome-subtext">Проверьте подключение</div>
-                </div>
-            `;
-        }
+        messagesContainer.innerHTML = `
+            <div class="welcome-message">
+                <div class="welcome-text">Ошибка загрузки истории</div>
+                <div class="welcome-subtext">Проверьте подключение</div>
+            </div>
+        `;
     }
 }
 
@@ -288,31 +242,14 @@ async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
-    // Сразу добавляем в кэш и показываем
-    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-    const newMessage = {
-        from: currentUser.chatId,
-        fromName: currentUser.name,
-        to: currentChat.chatId,
-        toName: currentChat.name,
-        text: text,
-        chatKey: chatKey,
-        timestamp: new Date()
-    };
-    
-    // Добавляем в кэш
-    if (!messageCache[chatKey]) {
-        messageCache[chatKey] = [];
-    }
-    messageCache[chatKey].push(newMessage);
-    saveMessageCache(); // Сохраняем кэш
-    
-    // Показываем сообщение
+    // Показываем сообщение сразу
     addMessageToUI(text, 'sent', getCurrentTime(), true);
     messageInput.value = '';
 
     try {
-        // Отправляем в Firebase
+        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        
+        // Сохраняем ТОЛЬКО в Firebase - никакого localStorage!
         await firebase.firestore().collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -324,7 +261,6 @@ async function sendMessage() {
         });
         
         console.log('✅ Сообщение сохранено в Firebase');
-        updateLastMessage(currentChat.chatId, text);
         
     } catch (error) {
         console.error('❌ Ошибка отправки:', error);
@@ -377,17 +313,6 @@ function addMessageToUI(text, type, time, shouldScroll = true) {
     
     if (shouldScroll) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-}
-
-// ОБНОВЛЕНИЕ ПОСЛЕДНЕГО СООБЩЕНИЯ
-function updateLastMessage(contactId, message) {
-    const contactElement = document.querySelector(`[data-user-id="${contactId}"]`);
-    if (contactElement) {
-        const lastMessageElement = contactElement.querySelector('.last-message');
-        if (lastMessageElement) {
-            lastMessageElement.textContent = message;
-        }
     }
 }
 
@@ -449,7 +374,8 @@ function hideChatWindow() {
 // ПРОВЕРКА АВТОРИЗАЦИИ
 function checkAuthOnLoad() {
     try {
-        const savedUser = localStorage.getItem('wolf_current_user');
+        // ТОЛЬКО sessionStorage - очищается при закрытии вкладки
+        const savedUser = sessionStorage.getItem('wolf_current_user');
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
             showPage('app');
@@ -458,7 +384,7 @@ function checkAuthOnLoad() {
             showPage('login-page');
         }
     } catch (e) {
-        localStorage.removeItem('wolf_current_user');
+        sessionStorage.removeItem('wolf_current_user');
         showPage('login-page');
     }
 }
@@ -474,8 +400,8 @@ function logout() {
         unsubscribeMessages = null;
     }
     
-    // НЕ очищаем кэш сообщений при выходе!
-    localStorage.removeItem('wolf_current_user');
+    // Очищаем ТОЛЬКО sessionStorage
+    sessionStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
