@@ -34,6 +34,102 @@ body {
     display: flex;
 }
 
+/* Экран загрузки */
+#loading-page {
+    background: #000000;
+    justify-content: center;
+    align-items: center;
+}
+
+.loading-container {
+    text-align: center;
+    width: 100%;
+    max-width: 300px;
+    padding: 0 40px;
+}
+
+.loading-logo {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 30px;
+    opacity: 0.9;
+}
+
+.loading-text {
+    font-size: 24px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 40px;
+    letter-spacing: 1px;
+}
+
+.loading-bar-container {
+    width: 100%;
+    height: 4px;
+    background: transparent;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.loading-bar-background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #333333;
+    border-radius: 2px;
+}
+
+.loading-bar-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: #ffffff;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.loading-subtext {
+    font-size: 14px;
+    color: #666666;
+    margin-top: 15px;
+}
+
+/* Анимация появления */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.loading-container > * {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.loading-logo {
+    animation-delay: 0.1s;
+}
+
+.loading-text {
+    animation-delay: 0.2s;
+}
+
+.loading-bar-container {
+    animation-delay: 0.3s;
+}
+
+.loading-subtext {
+    animation-delay: 0.4s;
+}
+
 /* Страница входа */
 #login-page {
     background: #000000;
@@ -383,6 +479,11 @@ body {
     color: #ffffff;
 }
 
+.message.error .message-content {
+    background: #442222;
+    color: #ff6666;
+}
+
 .message-text {
     font-size: 15px;
     line-height: 1.4;
@@ -393,11 +494,6 @@ body {
     font-size: 11px;
     opacity: 0.6;
     text-align: right;
-}
-
-.message.error .message-content {
-    background: #442222;
-    color: #ff6666;
 }
 
 .input-container {
