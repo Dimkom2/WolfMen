@@ -13,11 +13,14 @@ let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
-let messageCache = {}; // КЭШ для сообщений
+
+// Загружаем кэш из localStorage при старте
+let messageCache = JSON.parse(localStorage.getItem('wolf_message_cache') || '{}');
 
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
+    console.log('Загружен кэш сообщений:', Object.keys(messageCache).length, 'чатов');
     
     // Проверяем что Firebase загружен
     if (typeof firebase === 'undefined') {
@@ -82,6 +85,16 @@ function handleResize() {
                 if (contactsPanel) contactsPanel.style.display = 'flex';
             }
         }
+    }
+}
+
+// СОХРАНЕНИЕ КЭША В LOCALSTORAGE
+function saveMessageCache() {
+    try {
+        localStorage.setItem('wolf_message_cache', JSON.stringify(messageCache));
+        console.log('💾 Кэш сообщений сохранен');
+    } catch (e) {
+        console.error('Ошибка сохранения кэша:', e);
     }
 }
 
@@ -196,8 +209,9 @@ function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
-    // Сначала показываем сообщения из кэша (если есть)
     const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    
+    // Сначала показываем сообщения из кэша (если есть)
     if (messageCache[chatKey] && messageCache[chatKey].length > 0) {
         displayMessages(messageCache[chatKey]);
     } else {
@@ -223,6 +237,7 @@ function loadChatHistory() {
             
             // Сохраняем в кэш
             messageCache[chatKey] = messages;
+            saveMessageCache(); // Сохраняем кэш в localStorage
             
             // Показываем сообщения
             displayMessages(messages);
@@ -290,6 +305,7 @@ async function sendMessage() {
         messageCache[chatKey] = [];
     }
     messageCache[chatKey].push(newMessage);
+    saveMessageCache(); // Сохраняем кэш
     
     // Показываем сообщение
     addMessageToUI(text, 'sent', getCurrentTime(), true);
@@ -459,8 +475,6 @@ function logout() {
     }
     
     // НЕ очищаем кэш сообщений при выходе!
-    // messageCache = {};
-    
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
