@@ -1,6 +1,20 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
+// Firebase конфиг
+const firebaseConfig = {
+    apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
+    authDomain: "wolf-messendger.firebaseapp.com",
+    projectId: "wolf-messendger",
+    storageBucket: "wolf-messendger.firebasestorage.app",
+    messagingSenderId: "454406992399",
+    appId: "1:454406992399:web:866c45d70ea30236a7297a"
+};
+
+// Инициализация Firebase
+const app = firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore(app);
+
 const CONFIG = {
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
@@ -14,30 +28,9 @@ let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
 
-// Firebase функции
-function getFirebaseFunctions() {
-    if (!window.firebaseReady) {
-        throw new Error('Firebase еще не загружен');
-    }
-    return window.firebaseFunctions;
-}
-
-function getFirebaseDb() {
-    if (!window.firebaseReady) {
-        throw new Error('Firebase еще не загружен');
-    }
-    return window.firebaseDb;
-}
-
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger с Firebase...');
-    
-    if (!window.firebaseReady) {
-        console.log('⏳ Ожидаем загрузку Firebase...');
-        setTimeout(initApp, 100);
-        return;
-    }
     
     tg.expand();
     tg.ready();
@@ -200,7 +193,7 @@ function openChat(contact) {
 }
 
 // ЗАГРУЗКА ИСТОРИИ ЧАТА ИЗ FIREBASE
-async function loadChatHistory() {
+function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
@@ -211,17 +204,13 @@ async function loadChatHistory() {
     }
     
     try {
-        const { collection, query, where, orderBy, onSnapshot } = getFirebaseFunctions();
-        const db = getFirebaseDb();
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        const q = query(
-            collection(db, "messages"),
-            where("chatKey", "==", chatKey),
-            orderBy("timestamp", "asc")
-        );
+        const q = db.collection("messages")
+            .where("chatKey", "==", chatKey)
+            .orderBy("timestamp", "asc");
         
-        unsubscribeMessages = onSnapshot(q, (snapshot) => {
+        unsubscribeMessages = q.onSnapshot((snapshot) => {
             const messages = [];
             snapshot.forEach((doc) => {
                 messages.push({ id: doc.id, ...doc.data() });
@@ -263,18 +252,16 @@ async function sendMessage() {
     messageInput.value = '';
 
     try {
-        const { collection, addDoc, serverTimestamp } = getFirebaseFunctions();
-        const db = getFirebaseDb();
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        await addDoc(collection(db, "messages"), {
+        await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
             to: currentChat.chatId,
             toName: currentChat.name,
             text: text,
             chatKey: chatKey,
-            timestamp: serverTimestamp()
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         console.log('✅ Сообщение сохранено в Firebase');
@@ -437,6 +424,5 @@ function logout() {
 // ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, инициализация приложения...');
-    window.initApp = initApp;
     initApp();
 });
