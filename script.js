@@ -13,6 +13,7 @@ let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
+let messageCache = {}; // КЭШ для сообщений
 
 // Инициализация приложения
 function initApp() {
@@ -145,11 +146,17 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
+        // Получаем последнее сообщение из кэша
+        const chatKey = getChatKey(currentUser.chatId, contact.chatId);
+        const lastMessage = messageCache[chatKey] && messageCache[chatKey].length > 0 
+            ? messageCache[chatKey][messageCache[chatKey].length - 1].text 
+            : 'Нажмите чтобы начать общение';
+        
         contactElement.innerHTML = `
             <div class="contact-avatar status-online">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">Нажмите чтобы начать общение</div>
+                <div class="last-message">${lastMessage}</div>
             </div>
         `;
         
@@ -189,15 +196,20 @@ function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
-    messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+    // Сначала показываем сообщения из кэша (если есть)
+    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    if (messageCache[chatKey] && messageCache[chatKey].length > 0) {
+        displayMessages(messageCache[chatKey]);
+    } else {
+        messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+    }
     
+    // Затем подписываемся на обновления
     if (unsubscribeMessages) {
         unsubscribeMessages();
     }
     
     try {
-        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-        
         const q = firebase.firestore()
             .collection("messages")
             .where("chatKey", "==", chatKey)
@@ -209,17 +221,37 @@ function loadChatHistory() {
                 messages.push({ id: doc.id, ...doc.data() });
             });
             
+            // Сохраняем в кэш
+            messageCache[chatKey] = messages;
+            
+            // Показываем сообщения
             displayMessages(messages);
+            
+            // Обновляем последнее сообщение в списке контактов
+            if (messages.length > 0) {
+                updateLastMessage(currentChat.chatId, messages[messages.length - 1].text);
+            }
+        }, (error) => {
+            console.error('Ошибка подписки:', error);
+            // Если ошибка, показываем сообщения из кэша
+            if (messageCache[chatKey]) {
+                displayMessages(messageCache[chatKey]);
+            }
         });
         
     } catch (error) {
         console.error('Ошибка загрузки истории:', error);
-        messagesContainer.innerHTML = `
-            <div class="welcome-message">
-                <div class="welcome-text">Ошибка загрузки истории</div>
-                <div class="welcome-subtext">Проверьте подключение</div>
-            </div>
-        `;
+        // Показываем сообщения из кэша при ошибке
+        if (messageCache[chatKey]) {
+            displayMessages(messageCache[chatKey]);
+        } else {
+            messagesContainer.innerHTML = `
+                <div class="welcome-message">
+                    <div class="welcome-text">Ошибка загрузки истории</div>
+                    <div class="welcome-subtext">Проверьте подключение</div>
+                </div>
+            `;
+        }
     }
 }
 
@@ -241,12 +273,30 @@ async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
+    // Сразу добавляем в кэш и показываем
+    const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+    const newMessage = {
+        from: currentUser.chatId,
+        fromName: currentUser.name,
+        to: currentChat.chatId,
+        toName: currentChat.name,
+        text: text,
+        chatKey: chatKey,
+        timestamp: new Date()
+    };
+    
+    // Добавляем в кэш
+    if (!messageCache[chatKey]) {
+        messageCache[chatKey] = [];
+    }
+    messageCache[chatKey].push(newMessage);
+    
+    // Показываем сообщение
     addMessageToUI(text, 'sent', getCurrentTime(), true);
     messageInput.value = '';
 
     try {
-        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-        
+        // Отправляем в Firebase
         await firebase.firestore().collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -407,6 +457,9 @@ function logout() {
         unsubscribeMessages();
         unsubscribeMessages = null;
     }
+    
+    // НЕ очищаем кэш сообщений при выходе!
+    // messageCache = {};
     
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
