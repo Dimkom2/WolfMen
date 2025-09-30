@@ -1,20 +1,6 @@
 // Инициализация Telegram Mini Apps
 const tg = window.Telegram.WebApp;
 
-// Firebase конфиг
-const firebaseConfig = {
-    apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
-    authDomain: "wolf-messendger.firebaseapp.com",
-    projectId: "wolf-messendger",
-    storageBucket: "wolf-messendger.firebasestorage.app",
-    messagingSenderId: "454406992399",
-    appId: "1:454406992399:web:866c45d70ea30236a7297a"
-};
-
-// Инициализация Firebase
-const app = firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore(app);
-
 const CONFIG = {
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
@@ -30,13 +16,23 @@ let unsubscribeMessages = null;
 
 // Инициализация приложения
 function initApp() {
-    console.log('🚀 Инициализация Wolf Messenger с Firebase...');
+    console.log('🚀 Инициализация Wolf Messenger...');
     
+    // Проверяем что Firebase загружен
+    if (typeof firebase === 'undefined') {
+        console.error('❌ Firebase не загружен!');
+        showPage('login-page');
+        return;
+    }
+    
+    // Инициализация Telegram
     tg.expand();
     tg.ready();
     
-    initInterface();
-    checkAuthOnLoad();
+    // Переходим к авторизации
+    setTimeout(() => {
+        checkAuthOnLoad();
+    }, 1000);
 }
 
 function initInterface() {
@@ -96,12 +92,9 @@ function checkPassword() {
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    console.log('Логин:', login, 'Пароль:', password);
-
     const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
 
     if (isValid) {
-        console.log('✅ Авторизация успешна!');
         errorMessage.textContent = '';
         currentUser = {
             login: login,
@@ -114,7 +107,6 @@ function checkPassword() {
         loadUserInterface();
         
     } else {
-        console.log('❌ Ошибка авторизации');
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
         document.getElementById('password').value = '';
     }
@@ -206,7 +198,8 @@ function loadChatHistory() {
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        const q = db.collection("messages")
+        const q = firebase.firestore()
+            .collection("messages")
             .where("chatKey", "==", chatKey)
             .orderBy("timestamp", "asc");
         
@@ -224,7 +217,7 @@ function loadChatHistory() {
         messagesContainer.innerHTML = `
             <div class="welcome-message">
                 <div class="welcome-text">Ошибка загрузки истории</div>
-                <div class="welcome-subtext">Проверьте подключение к интернету</div>
+                <div class="welcome-subtext">Проверьте подключение</div>
             </div>
         `;
     }
@@ -254,7 +247,7 @@ async function sendMessage() {
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        await db.collection("messages").add({
+        await firebase.firestore().collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
             to: currentChat.chatId,
@@ -269,7 +262,7 @@ async function sendMessage() {
         
     } catch (error) {
         console.error('❌ Ошибка отправки:', error);
-        addMessageToUI('❌ Ошибка отправки сообщения', 'error', getCurrentTime(), true);
+        addMessageToUI('❌ Ошибка отправки', 'error', getCurrentTime(), true);
     }
 }
 
@@ -423,6 +416,6 @@ function logout() {
 
 // ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM загружен, инициализация приложения...');
-    initApp();
+    console.log('DOM загружен, запуск приложения...');
+    window.initApp = initApp;
 });
