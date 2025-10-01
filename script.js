@@ -1,14 +1,5 @@
 // Инициализация Telegram Mini Apps
-let tg = null;
-try {
-    tg = window.Telegram.WebApp;
-} catch (error) {
-    console.log('Telegram Web App не доступен');
-    tg = {
-        expand: function() { console.log('Telegram: expand') },
-        ready: function() { console.log('Telegram: ready') }
-    };
-}
+const tg = window.Telegram.WebApp;
 
 const CONFIG = {
     validAccounts: [
@@ -28,6 +19,7 @@ let db = null;
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
     
+    // Проверяем что Firebase загружен
     if (typeof firebase === 'undefined') {
         console.error('❌ Firebase не загружен!');
         showPage('login-page');
@@ -35,19 +27,31 @@ function initApp() {
     }
     
     try {
+        // Инициализируем Firestore
         db = firebase.firestore();
-        console.log('✅ Firestore подключен');
+        console.log('✅ Firestore инициализирован');
+        
+        // Настраиваем кэш для оффлайн работы
+        db.enablePersistence()
+            .then(() => {
+                console.log('✅ Оффлайн поддержка включена');
+            })
+            .catch((err) => {
+                console.warn('⚠️ Оффлайн режим не доступен:', err);
+            });
+            
     } catch (error) {
-        console.error('❌ Ошибка Firestore:', error);
+        console.error('❌ Ошибка инициализации Firestore:', error);
     }
     
-    try {
-        tg.expand();
-        tg.ready();
-    } catch (error) {
-        console.log('Telegram не доступен, работаем в браузере');
-    }
+    // Инициализация Telegram
+    tg.expand();
+    tg.ready();
     
+    // Инициализируем интерфейс
+    initInterface();
+    
+    // Переходим к авторизации
     setTimeout(() => {
         checkAuthOnLoad();
     }, 500);
@@ -120,14 +124,37 @@ function checkPassword() {
             chatId: isValid.chatId
         };
         
+        // Сохраняем в sessionStorage для текущей сессии
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
-        localStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        
+        // Также сохраняем в Firebase для отслеживания онлайн статуса
+        updateUserStatus(true);
+        
         showPage('app');
         loadUserInterface();
         
     } else {
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
         document.getElementById('password').value = '';
+    }
+}
+
+// ОБНОВЛЕНИЕ СТАТУСА ПОЛЬЗОВАТЕЛЯ В FIREBASE
+async function updateUserStatus(isOnline) {
+    if (!db || !currentUser) return;
+    
+    try {
+        await db.collection('users').doc(currentUser.chatId).set({
+            name: currentUser.name,
+            login: currentUser.login,
+            isOnline: isOnline,
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        
+        console.log('✅ Статус обновлен в Firebase');
+    } catch (error) {
+        console.error('❌ Ошибка обновления статуса:', error);
     }
 }
 
@@ -146,7 +173,7 @@ function loadUserInterface() {
     initInterface();
 }
 
-// ЗАГРУЗКА КОНТАКТОВ
+// ЗАГРУЗКА КОНТАКТОВ С ОНЛАЙН СТАТУСОМ
 function loadContacts() {
     const contactsList = document.getElementById('contactsList');
     if (!currentUser || !contactsList) return;
@@ -158,6 +185,49 @@ function loadContacts() {
         return;
     }
     
+    contactsList.innerHTML = '<div class="loading">Загрузка контактов...</div>';
+    
+    // Загружаем онлайн статусы из Firebase
+    loadOnlineStatuses(contacts).then(contactsWithStatus => {
+        displayContacts(contactsWithStatus);
+    }).catch(error => {
+        console.error('Ошибка загрузки статусов:', error);
+        displayContacts(contacts); // Показываем контакты без статусов
+    });
+}
+
+// ЗАГРУЗКА ОНЛАЙН СТАТУСОВ ИЗ FIREBASE
+async function loadOnlineStatuses(contacts) {
+    if (!db) return contacts;
+    
+    try {
+        const userIds = contacts.map(contact => contact.chatId);
+        const snapshot = await db.collection('users')
+            .where(firebase.firestore.FieldPath.documentId(), 'in', userIds)
+            .get();
+            
+        const userStatuses = {};
+        snapshot.forEach(doc => {
+            userStatuses[doc.id] = doc.data().isOnline || false;
+        });
+        
+        // Обновляем контакты со статусами
+        return contacts.map(contact => ({
+            ...contact,
+            isOnline: userStatuses[contact.chatId] || false
+        }));
+        
+    } catch (error) {
+        console.error('Ошибка загрузки статусов:', error);
+        return contacts;
+    }
+}
+
+// ОТОБРАЖЕНИЕ КОНТАКТОВ
+function displayContacts(contacts) {
+    const contactsList = document.getElementById('contactsList');
+    if (!contactsList) return;
+    
     contactsList.innerHTML = '';
     
     contacts.forEach(contact => {
@@ -165,11 +235,14 @@ function loadContacts() {
         contactElement.className = 'contact';
         contactElement.dataset.userId = contact.login;
         
+        const statusClass = contact.isOnline ? 'status-online' : 'status-offline';
+        const statusText = contact.isOnline ? 'online' : 'offline';
+        
         contactElement.innerHTML = `
-            <div class="contact-avatar status-online">${contact.login}</div>
+            <div class="contact-avatar ${statusClass}">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">Нажмите чтобы начать общение</div>
+                <div class="last-message">${statusText}</div>
             </div>
         `;
         
@@ -185,17 +258,12 @@ function openChat(contact) {
         return;
     }
     
-    if (unsubscribeMessages) {
-        unsubscribeMessages();
-        unsubscribeMessages = null;
-    }
-    
     currentChat = contact;
     isChatOpen = true;
     
     document.getElementById('partnerAvatar').textContent = contact.login;
     document.getElementById('partnerName').textContent = contact.name;
-    document.getElementById('partnerStatus').textContent = 'online';
+    document.getElementById('partnerStatus').textContent = contact.isOnline ? 'online' : 'offline';
     document.getElementById('messageInput').disabled = false;
     document.querySelector('.send-button').disabled = false;
     
@@ -212,49 +280,52 @@ function openChat(contact) {
 // ЗАГРУЗКА ИСТОРИИ ЧАТА ИЗ FIREBASE
 function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
+    if (!messagesContainer || !currentUser || !currentChat) return;
     
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
     
+    // Отписываемся от предыдущего слушателя
     if (unsubscribeMessages) {
         unsubscribeMessages();
-    }
-    
-    if (!db) {
-        showWelcomeMessage();
-        return;
+        unsubscribeMessages = null;
     }
     
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        
+        console.log('📥 Загружаем историю для чата:', chatKey);
         
         const q = db.collection("messages")
             .where("chatKey", "==", chatKey)
             .orderBy("timestamp", "asc");
         
         unsubscribeMessages = q.onSnapshot((snapshot) => {
-            if (snapshot.empty) {
-                showWelcomeMessage();
-                return;
-            }
-            
             const messages = [];
             snapshot.forEach((doc) => {
-                if (doc.exists) {
-                    messages.push({ id: doc.id, ...doc.data() });
-                }
+                messages.push({ id: doc.id, ...doc.data() });
             });
             
+            console.log('📨 Загружено сообщений:', messages.length);
             displayMessages(messages);
             
         }, (error) => {
-            console.error('❌ Ошибка загрузки:', error);
-            showWelcomeMessage();
+            console.error('❌ Ошибка загрузки сообщений:', error);
+            messagesContainer.innerHTML = `
+                <div class="welcome-message">
+                    <div class="welcome-text">Ошибка загрузки истории</div>
+                    <div class="welcome-subtext">Проверьте подключение к интернету</div>
+                </div>
+            `;
         });
         
     } catch (error) {
-        console.error('❌ Ошибка:', error);
-        showWelcomeMessage();
+        console.error('❌ Ошибка настройки слушателя:', error);
+        messagesContainer.innerHTML = `
+            <div class="welcome-message">
+                <div class="welcome-text">Ошибка подключения</div>
+                <div class="welcome-subtext">Перезагрузите приложение</div>
+            </div>
+        `;
     }
 }
 
@@ -265,7 +336,10 @@ function getChatKey(user1, user2) {
 
 // ОТПРАВКА СООБЩЕНИЯ В FIREBASE
 async function sendMessage() {
-    if (!currentUser || !currentChat) return;
+    if (!currentUser || !currentChat || !db) {
+        showPage('login-page');
+        return;
+    }
     
     const messageInput = document.getElementById('messageInput');
     if (!messageInput) return;
@@ -273,28 +347,43 @@ async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text) return;
 
-    addMessageToUI(text, 'sent', getCurrentTime(), true);
+    // Показываем сообщение сразу (оптимистичное обновление)
+    const tempId = 'temp_' + Date.now();
+    addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
     messageInput.value = '';
-
-    if (!db) return;
 
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        const timestamp = firebase.firestore.FieldValue.serverTimestamp();
         
-        await db.collection("messages").add({
+        // Сохраняем в Firebase
+        const docRef = await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
             to: currentChat.chatId,
             toName: currentChat.name,
             text: text,
             chatKey: chatKey,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            timestamp: timestamp
         });
         
-        console.log('✅ Сообщение сохранено в Firebase');
+        console.log('✅ Сообщение сохранено в Firebase с ID:', docRef.id);
+        
+        // Удаляем временное сообщение
+        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempElement) {
+            tempElement.remove();
+        }
         
     } catch (error) {
         console.error('❌ Ошибка отправки:', error);
+        
+        // Помечаем сообщение как ошибку
+        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempElement) {
+            tempElement.classList.add('error');
+            tempElement.querySelector('.message-text').textContent = '❌ Ошибка отправки: ' + text;
+        }
     }
 }
 
@@ -313,14 +402,14 @@ function displayMessages(messages) {
     messages.forEach(msg => {
         const messageType = msg.from === currentUser.chatId ? 'sent' : 'received';
         const time = msg.timestamp ? formatFirebaseTime(msg.timestamp) : getCurrentTime();
-        addMessageToUI(msg.text, messageType, time, false);
+        addMessageToUI(msg.text, messageType, time, msg.id, false);
     });
     
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    scrollToBottom();
 }
 
 // ДОБАВЛЕНИЕ СООБЩЕНИЯ В ИНТЕРФЕЙС
-function addMessageToUI(text, type, time, shouldScroll = true) {
+function addMessageToUI(text, type, time, messageId, shouldScroll = true) {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
     
@@ -331,6 +420,7 @@ function addMessageToUI(text, type, time, shouldScroll = true) {
     
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
+    messageDiv.dataset.messageId = messageId;
     
     messageDiv.innerHTML = `
         <div class="message-content">
@@ -342,6 +432,14 @@ function addMessageToUI(text, type, time, shouldScroll = true) {
     messagesContainer.appendChild(messageDiv);
     
     if (shouldScroll) {
+        scrollToBottom();
+    }
+}
+
+// ПРОКРУТКА ВНИЗ
+function scrollToBottom() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (messagesContainer) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 }
@@ -404,28 +502,31 @@ function hideChatWindow() {
 // ПРОВЕРКА АВТОРИЗАЦИИ
 function checkAuthOnLoad() {
     try {
-        let savedUser = sessionStorage.getItem('wolf_current_user');
-        if (!savedUser) {
-            savedUser = localStorage.getItem('wolf_current_user');
-        }
-        
+        const savedUser = sessionStorage.getItem('wolf_current_user');
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
-            sessionStorage.setItem('wolf_current_user', savedUser);
             showPage('app');
             loadUserInterface();
+            
+            // Обновляем статус онлайн
+            updateUserStatus(true);
         } else {
             showPage('login-page');
         }
     } catch (e) {
+        console.error('Ошибка восстановления сессии:', e);
         sessionStorage.removeItem('wolf_current_user');
-        localStorage.removeItem('wolf_current_user');
         showPage('login-page');
     }
 }
 
 // ВЫХОД
-function logout() {
+async function logout() {
+    // Обновляем статус в Firebase
+    if (currentUser) {
+        await updateUserStatus(false);
+    }
+    
     currentUser = null;
     currentChat = null;
     isChatOpen = false;
@@ -436,21 +537,20 @@ function logout() {
     }
     
     sessionStorage.removeItem('wolf_current_user');
-    localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
 }
+
+// ОБРАБОТЧИК ПЕРЕЗАГРУЗКИ СТРАНИЦЫ
+window.addEventListener('beforeunload', function() {
+    if (currentUser) {
+        updateUserStatus(false);
+    }
+});
 
 // ИНИЦИАЛИЗАЦИЯ
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, запуск приложения...');
     window.initApp = initApp;
 });
-
-// Глобальные функции
-window.checkPassword = checkPassword;
-window.sendMessage = sendMessage;
-window.logout = logout;
-window.goBack = goBack;
-window.loadChatHistory = loadChatHistory;
