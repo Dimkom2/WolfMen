@@ -12,20 +12,15 @@
     <!-- Экран загрузки -->
     <div id="loading-page" class="page active">
         <div class="loading-container">
-            <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
             <div class="loading-text">Wolf Messenger</div>
-            <div class="loading-bar-container">
-                <div class="loading-bar-background"></div>
-                <div class="loading-bar-progress" id="loadingBar"></div>
-            </div>
-            <div class="loading-subtext" id="loadingStatus">Подключение к серверу...</div>
+            <div class="loading-subtext">Загрузка...</div>
         </div>
     </div>
 
     <!-- Страница входа -->
     <div id="login-page" class="page">
         <div class="login-container">
-            <img src="wolf-logo.png" alt="Wolf Logo" class="login-logo">
+            <div class="loading-text">Wolf Messenger</div>
             <div class="input-group">
                 <input type="text" id="login" placeholder="ЛОГИН" class="login-input">
             </div>
@@ -43,7 +38,6 @@
         <div class="contacts-panel">
             <div class="panel-header">
                 <div class="logo">
-                    <img src="wolf-logo.png" alt="Wolf" class="wolf-logo-small">
                     <span>WOLF PACK</span>
                 </div>
             </div>
@@ -66,9 +60,7 @@
         <div class="chat-window">
             <div class="chat-header">
                 <div class="header-back" onclick="goBack()">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2"/>
-                    </svg>
+                    ← Назад
                 </div>
                 <div class="chat-partner">
                     <div class="partner-avatar" id="partnerAvatar">?</div>
@@ -81,9 +73,8 @@
             
             <div class="messages-container" id="messagesContainer">
                 <div class="welcome-message">
-                    <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
                     <div class="welcome-text">Wolf Messenger</div>
-                    <div class="welcome-subtext">Войдите в систему для начала работы</div>
+                    <div class="welcome-subtext">Выберите чат для начала общения</div>
                 </div>
             </div>
             
@@ -91,9 +82,7 @@
                 <div class="message-input-wrapper">
                     <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
                     <button class="send-button" onclick="sendMessage()" disabled>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                            <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
-                        </svg>
+                        Отправить
                     </button>
                 </div>
             </div>
@@ -103,68 +92,6 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-
-    <script>
-        // Firebase конфиг
-        const firebaseConfig = {
-            apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
-            authDomain: "wolf-messendger.firebaseapp.com",
-            projectId: "wolf-messendger",
-            storageBucket: "wolf-messendger.firebasestorage.app",
-            messagingSenderId: "454406992399",
-            appId: "1:454406992399:web:866c45d70ea30236a7297a"
-        };
-
-        // Функция обновления прогресса
-        function updateLoadingProgress(progress, status) {
-            const loadingBar = document.getElementById('loadingBar');
-            const loadingStatus = document.getElementById('loadingStatus');
-            
-            if (loadingBar) {
-                loadingBar.style.width = progress + '%';
-            }
-            if (loadingStatus) {
-                loadingStatus.textContent = status;
-            }
-        }
-
-        // Инициализируем Firebase с прогрессом
-        updateLoadingProgress(10, 'Инициализация Firebase...');
-        
-        try {
-            firebase.initializeApp(firebaseConfig);
-            updateLoadingProgress(40, 'Firebase подключен');
-            
-            // Загружаем основной скрипт
-            setTimeout(() => {
-                updateLoadingProgress(70, 'Загрузка приложения...');
-                const script = document.createElement('script');
-                script.src = 'script.js';
-                script.onload = function() {
-                    updateLoadingProgress(100, 'Готово!');
-                    setTimeout(() => {
-                        if (window.initApp) {
-                            window.initApp();
-                        }
-                    }, 500);
-                };
-                document.head.appendChild(script);
-            }, 800);
-            
-        } catch (error) {
-            console.error('Ошибка Firebase:', error);
-            updateLoadingProgress(100, 'Ошибка подключения');
-            setTimeout(() => {
-                const script = document.createElement('script');
-                script.src = 'script.js';
-                script.onload = function() {
-                    if (window.initApp) {
-                        window.initApp();
-                    }
-                };
-                document.head.appendChild(script);
-            }, 1000);
-        }
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
