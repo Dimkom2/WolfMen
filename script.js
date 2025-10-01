@@ -1,5 +1,15 @@
 // Инициализация Telegram Mini Apps
-const tg = window.Telegram.WebApp;
+let tg = null;
+try {
+    tg = window.Telegram.WebApp;
+} catch (error) {
+    console.log('Telegram Web App не доступен');
+    // Создаем заглушку для локального тестирования
+    tg = {
+        expand: function() { console.log('Telegram: expand') },
+        ready: function() { console.log('Telegram: ready') }
+    };
+}
 
 const CONFIG = {
     validAccounts: [
@@ -13,6 +23,7 @@ let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
+let db = null;
 
 // Инициализация приложения
 function initApp() {
@@ -25,14 +36,33 @@ function initApp() {
         return;
     }
     
+    try {
+        db = firebase.firestore();
+        console.log('✅ Firestore подключен');
+        
+        // Тестируем подключение
+        db.collection("test").limit(1).get().then(() => {
+            console.log('✅ Подключение к Firebase успешно');
+        }).catch(error => {
+            console.warn('⚠️ Ограниченный доступ к Firebase:', error);
+        });
+        
+    } catch (error) {
+        console.error('❌ Ошибка Firestore:', error);
+    }
+    
     // Инициализация Telegram
-    tg.expand();
-    tg.ready();
+    try {
+        tg.expand();
+        tg.ready();
+    } catch (error) {
+        console.log('Telegram не доступен, работаем в браузере');
+    }
     
     // Переходим к авторизации
     setTimeout(() => {
         checkAuthOnLoad();
-    }, 1000);
+    }, 500);
 }
 
 function initInterface() {
@@ -44,13 +74,6 @@ function initInterface() {
                 sendMessage();
             }
         });
-        
-        messageInput.addEventListener('focus', function() {
-            if (window.innerWidth <= 768 && currentChat) {
-                isChatOpen = true;
-                showChatWindow();
-            }
-        });
     }
     
     window.addEventListener('resize', handleResize);
@@ -60,26 +83,15 @@ function initInterface() {
 function handleResize() {
     if (window.innerWidth > 768) {
         document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.contacts-panel').style.width = '35%';
         document.querySelector('.chat-window').style.display = 'flex';
-        document.querySelector('.chat-window').style.width = '65%';
         document.querySelector('.header-back').style.display = 'none';
     } else {
-        const contactsPanel = document.querySelector('.contacts-panel');
-        const chatWindow = document.querySelector('.chat-window');
-        const headerBack = document.querySelector('.header-back');
-        
-        if (contactsPanel) contactsPanel.style.display = 'flex';
-        if (headerBack) headerBack.style.display = 'block';
-        
-        if (chatWindow) {
-            if (isChatOpen && currentChat) {
-                chatWindow.style.display = 'flex';
-                if (contactsPanel) contactsPanel.style.display = 'none';
-            } else {
-                chatWindow.style.display = 'none';
-                if (contactsPanel) contactsPanel.style.display = 'flex';
-            }
+        if (isChatOpen && currentChat) {
+            document.querySelector('.contacts-panel').style.display = 'none';
+            document.querySelector('.chat-window').style.display = 'flex';
+        } else {
+            document.querySelector('.contacts-panel').style.display = 'flex';
+            document.querySelector('.chat-window').style.display = 'none';
         }
     }
 }
@@ -184,13 +196,13 @@ function openChat(contact) {
     document.querySelector('.send-button').disabled = false;
     
     loadChatHistory();
-    
-    if (window.innerWidth <= 768) {
-        showChatWindow();
-    }
+    handleResize();
     
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
-    document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
+    const activeContact = document.querySelector(`[data-user-id="${contact.login}"]`);
+    if (activeContact) {
+        activeContact.classList.add('active');
+    }
 }
 
 // ЗАГРУЗКА ИСТОРИИ ЧАТА ИЗ FIREBASE
@@ -204,16 +216,24 @@ function loadChatHistory() {
         unsubscribeMessages();
     }
     
+    // Проверяем доступность Firebase
+    if (!db) {
+        showWelcomeMessage();
+        console.warn('Firebase не доступен, работаем в оффлайн режиме');
+        return;
+    }
+    
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
+        console.log('🔍 Загружаем чат:', chatKey);
         
-        const q = firebase.firestore()
-            .collection("messages")
+        const q = db.collection("messages")
             .where("chatKey", "==", chatKey)
             .orderBy("timestamp", "asc");
         
         unsubscribeMessages = q.onSnapshot((snapshot) => {
-            // Проверяем, есть ли данные
+            console.log('📨 Получены данные:', snapshot.size, 'сообщений');
+            
             if (snapshot.empty) {
                 showWelcomeMessage();
                 return;
@@ -227,24 +247,15 @@ function loadChatHistory() {
             });
             
             displayMessages(messages);
+            
         }, (error) => {
-            console.error('Ошибка подписки:', error);
-            messagesContainer.innerHTML = `
-                <div class="welcome-message">
-                    <div class="welcome-text">Ошибка загрузки</div>
-                    <div class="welcome-subtext">Попробуйте перезагрузить</div>
-                </div>
-            `;
+            console.error('❌ Ошибка загрузки:', error);
+            showWelcomeMessage();
         });
         
     } catch (error) {
-        console.error('Ошибка загрузки истории:', error);
-        messagesContainer.innerHTML = `
-            <div class="welcome-message">
-                <div class="welcome-text">Ошибка подключения</div>
-                <div class="welcome-subtext">Проверьте интернет</div>
-            </div>
-        `;
+        console.error('❌ Ошибка:', error);
+        showWelcomeMessage();
     }
 }
 
@@ -256,7 +267,6 @@ function getChatKey(user1, user2) {
 // ОТПРАВКА СООБЩЕНИЯ В FIREBASE
 async function sendMessage() {
     if (!currentUser || !currentChat) {
-        showPage('login-page');
         return;
     }
     
@@ -270,11 +280,17 @@ async function sendMessage() {
     addMessageToUI(text, 'sent', getCurrentTime(), true);
     messageInput.value = '';
 
+    // Проверяем доступность Firebase
+    if (!db) {
+        console.warn('Firebase не доступен, сообщение не сохранено');
+        return;
+    }
+
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // Сохраняем ТОЛЬКО в Firebase - глобальное хранение!
-        await firebase.firestore().collection("messages").add({
+        // Сохраняем в Firebase
+        await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
             to: currentChat.chatId,
@@ -288,7 +304,6 @@ async function sendMessage() {
         
     } catch (error) {
         console.error('❌ Ошибка отправки:', error);
-        addMessageToUI('❌ Ошибка отправки', 'error', getCurrentTime(), true);
     }
 }
 
@@ -336,7 +351,9 @@ function addMessageToUI(text, type, time, shouldScroll = true) {
     messagesContainer.appendChild(messageDiv);
     
     if (shouldScroll) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        setTimeout(() => {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 100);
     }
 }
 
@@ -348,10 +365,14 @@ function getCurrentTime() {
 }
 
 function formatFirebaseTime(timestamp) {
-    if (timestamp && timestamp.toDate) {
-        const date = timestamp.toDate();
-        return date.getHours().toString().padStart(2, '0') + ':' + 
-               date.getMinutes().toString().padStart(2, '0');
+    try {
+        if (timestamp && timestamp.toDate) {
+            const date = timestamp.toDate();
+            return date.getHours().toString().padStart(2, '0') + ':' + 
+                   date.getMinutes().toString().padStart(2, '0');
+        }
+    } catch (e) {
+        console.error('Ошибка форматирования времени:', e);
     }
     return getCurrentTime();
 }
@@ -363,51 +384,35 @@ function showWelcomeMessage() {
     const chatName = currentChat ? currentChat.name : 'контактом';
     messagesContainer.innerHTML = `
         <div class="welcome-message">
-            <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
             <div class="welcome-text">Начните общение с ${chatName}</div>
-            <div class="welcome-subtext">Сообщения сохраняются глобально в Firebase</div>
+            <div class="welcome-subtext">Это начало вашей переписки</div>
         </div>
     `;
 }
 
 function showPage(pageId) {
     document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
-    document.getElementById(pageId).classList.add('active');
+    const pageElement = document.getElementById(pageId);
+    if (pageElement) {
+        pageElement.classList.add('active');
+    }
     handleResize();
 }
 
 function goBack() {
     if (window.innerWidth <= 768) {
         isChatOpen = false;
-        hideChatWindow();
+        handleResize();
     }
-}
-
-function showChatWindow() {
-    isChatOpen = true;
-    document.querySelector('.contacts-panel').style.display = 'none';
-    document.querySelector('.chat-window').style.display = 'flex';
-}
-
-function hideChatWindow() {
-    isChatOpen = false;
-    document.querySelector('.contacts-panel').style.display = 'flex';
-    document.querySelector('.chat-window').style.display = 'none';
 }
 
 // ПРОВЕРКА АВТОРИЗАЦИИ
 function checkAuthOnLoad() {
     try {
-        // Сначала проверяем sessionStorage, потом localStorage
-        let savedUser = sessionStorage.getItem('wolf_current_user');
-        if (!savedUser) {
-            savedUser = localStorage.getItem('wolf_current_user');
-        }
+        let savedUser = sessionStorage.getItem('wolf_current_user') || localStorage.getItem('wolf_current_user');
         
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
-            // Обновляем sessionStorage из localStorage
-            sessionStorage.setItem('wolf_current_user', savedUser);
             showPage('app');
             loadUserInterface();
         } else {
@@ -431,7 +436,6 @@ function logout() {
         unsubscribeMessages = null;
     }
     
-    // Очищаем оба хранилища
     sessionStorage.removeItem('wolf_current_user');
     localStorage.removeItem('wolf_current_user');
     showPage('login-page');
@@ -439,8 +443,10 @@ function logout() {
     document.getElementById('password').value = '';
 }
 
-// ИНИЦИАЛИЗАЦИЯ
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM загружен, запуск приложения...');
-    window.initApp = initApp;
-});
+// Делаем функции глобальными
+window.checkPassword = checkPassword;
+window.sendMessage = sendMessage;
+window.logout = logout;
+window.goBack = goBack;
+window.initApp = initApp;
+window.loadChatHistory = loadChatHistory;
