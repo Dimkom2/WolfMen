@@ -515,3 +515,19 @@ document.addEventListener('DOMContentLoaded', function() {
         initApp();
     }, 1000);
 });
+/* Добавь этот стиль в конец файла */
+.logout-button {
+    margin-left: 10px; 
+    padding: 5px 10px; 
+    background: #333; 
+    color: white; 
+    border: none; 
+    border-radius: 5px; 
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+}
+
+.logout-button:hover {
+    background: #444;
+}
