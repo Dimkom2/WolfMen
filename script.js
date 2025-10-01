@@ -22,7 +22,6 @@ function initApp() {
     // Проверяем онлайн статус
     if (!navigator.onLine) {
         console.warn('⚠️ Приложение запущено в оффлайн режиме');
-        showOfflineWarning();
     }
     
     // Проверяем что Firebase загружен
@@ -36,19 +35,19 @@ function initApp() {
         // Инициализируем Firestore
         db = firebase.firestore();
         
-        // Настраиваем таймауты для медленных соединений
-        db.settings({
-            cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED
-        });
+        // Настраиваем кэш для оффлайн работы
+        db.enablePersistence()
+            .then(() => {
+                console.log('✅ Оффлайн поддержка включена');
+            })
+            .catch((err) => {
+                console.warn('⚠️ Оффлайн режим не доступен:', err);
+            });
         
         console.log('✅ Firestore инициализирован');
         
-        // Тестируем подключение
-        testFirebaseConnection();
-        
     } catch (error) {
         console.error('❌ Ошибка инициализации Firestore:', error);
-        showFirebaseError(error);
     }
     
     // Инициализация Telegram
@@ -62,42 +61,6 @@ function initApp() {
     setTimeout(() => {
         checkAuthOnLoad();
     }, 500);
-}
-
-// ТЕСТИРОВАНИЕ ПОДКЛЮЧЕНИЯ K FIREBASE
-async function testFirebaseConnection() {
-    if (!db) return;
-    
-    try {
-        // Пробуем сделать простой запрос для проверки подключения
-        await db.collection('test').limit(1).get();
-        console.log('✅ Подключение к Firebase работает');
-    } catch (error) {
-        console.error('❌ Ошибка подключения к Firebase:', error);
-        showFirebaseError(error);
-    }
-}
-
-// ПОКАЗАТЬ ОШИБКУ FIREBASE
-function showFirebaseError(error) {
-    const loadingPage = document.getElementById('loading-page');
-    if (loadingPage) {
-        loadingPage.innerHTML = `
-            <div class="loading-container">
-                <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
-                <div class="loading-text">Ошибка подключения</div>
-                <div class="loading-subtext">${error.message || 'Не удалось подключиться к серверу'}</div>
-                <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #fff; color: #000; border: none; border-radius: 5px; cursor: pointer;">
-                    Перезагрузить
-                </button>
-            </div>
-        `;
-    }
-}
-
-// ПОКАЗАТЬ ПРЕДУПРЕЖДЕНИЕ ОБ ОФФЛАЙН РЕЖИМЕ
-function showOfflineWarning() {
-    console.log('🔶 Работаем в оффлайн режиме');
 }
 
 function initInterface() {
@@ -320,14 +283,13 @@ function openChat(contact) {
     document.querySelector(`[data-user-id="${contact.login}"]`).classList.add('active');
 }
 
-// ЗАГРУЗКА ИСТОРИИ ЧАТА ИЗ FIREBASE
+// УПРОЩЕННАЯ ЗАГРУЗКА ИСТОРИИ ЧАТА (без индексов)
 function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer || !currentUser || !currentChat) return;
     
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
     
-    // Отписываемся от предыдущего слушателя
     if (unsubscribeMessages) {
         unsubscribeMessages();
         unsubscribeMessages = null;
@@ -338,47 +300,43 @@ function loadChatHistory() {
         
         console.log('📥 Загружаем историю для чата:', chatKey);
         
-        const q = db.collection("messages")
-            .where("chatKey", "==", chatKey)
-            .orderBy("timestamp", "asc")
-            .limit(50);
+        // Загружаем ВСЕ сообщения и фильтруем локально
+        const q = db.collection("messages");
         
         unsubscribeMessages = q.onSnapshot((snapshot) => {
-            const messages = [];
+            const allMessages = [];
             snapshot.forEach((doc) => {
                 if (doc.exists) {
-                    messages.push({ id: doc.id, ...doc.data() });
+                    allMessages.push({ id: doc.id, ...doc.data() });
                 }
             });
             
-            console.log('📨 Загружено сообщений:', messages.length);
+            // Фильтруем сообщения по chatKey локально
+            const chatMessages = allMessages.filter(msg => msg.chatKey === chatKey);
             
-            if (messages.length === 0) {
+            // Сортируем по timestamp
+            chatMessages.sort((a, b) => {
+                const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+                const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+                return timeA - timeB;
+            });
+            
+            console.log('📨 Загружено сообщений для чата:', chatMessages.length);
+            
+            if (chatMessages.length === 0) {
                 showWelcomeMessage();
             } else {
-                displayMessages(messages);
+                displayMessages(chatMessages);
             }
             
         }, (error) => {
-            console.error('❌ Ошибка загрузки сообщений:', error);
-            
-            // Более детальная обработка ошибок
-            let errorMessage = 'Ошибка загрузки истории';
-            
-            if (error.code === 'permission-denied') {
-                errorMessage = 'Ошибка доступа. Проверьте правила Firestore';
-            } else if (error.code === 'unavailable') {
-                errorMessage = 'Нет подключения к интернету';
-            } else if (error.code === 'not-found') {
-                errorMessage = 'Коллекция не найдена';
-            }
-            
+            console.error('❌ Ошибка загрузки:', error);
             messagesContainer.innerHTML = `
                 <div class="welcome-message">
-                    <div class="welcome-text">${errorMessage}</div>
-                    <div class="welcome-subtext">Код ошибки: ${error.code}</div>
+                    <div class="welcome-text">Ошибка загрузки сообщений</div>
+                    <div class="welcome-subtext">${error.message}</div>
                     <button onclick="loadChatHistory()" style="margin-top: 10px; padding: 8px 16px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                        Повторить
+                        Попробовать снова
                     </button>
                 </div>
             `;
@@ -388,7 +346,7 @@ function loadChatHistory() {
         console.error('❌ Ошибка настройки слушателя:', error);
         messagesContainer.innerHTML = `
             <div class="welcome-message">
-                <div class="welcome-text">Ошибка подключения к Firebase</div>
+                <div class="welcome-text">Ошибка подключения</div>
                 <div class="welcome-subtext">${error.message}</div>
             </div>
         `;
