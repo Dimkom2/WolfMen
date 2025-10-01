@@ -19,6 +19,12 @@ let db = null;
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
     
+    // Проверяем онлайн статус
+    if (!navigator.onLine) {
+        console.warn('⚠️ Приложение запущено в оффлайн режиме');
+        showOfflineWarning();
+    }
+    
     // Проверяем что Firebase загружен
     if (typeof firebase === 'undefined') {
         console.error('❌ Firebase не загружен!');
@@ -29,19 +35,20 @@ function initApp() {
     try {
         // Инициализируем Firestore
         db = firebase.firestore();
+        
+        // Настраиваем таймауты для медленных соединений
+        db.settings({
+            cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED
+        });
+        
         console.log('✅ Firestore инициализирован');
         
-        // Настраиваем кэш для оффлайн работы
-        db.enablePersistence()
-            .then(() => {
-                console.log('✅ Оффлайн поддержка включена');
-            })
-            .catch((err) => {
-                console.warn('⚠️ Оффлайн режим не доступен:', err);
-            });
-            
+        // Тестируем подключение
+        testFirebaseConnection();
+        
     } catch (error) {
         console.error('❌ Ошибка инициализации Firestore:', error);
+        showFirebaseError(error);
     }
     
     // Инициализация Telegram
@@ -55,6 +62,42 @@ function initApp() {
     setTimeout(() => {
         checkAuthOnLoad();
     }, 500);
+}
+
+// ТЕСТИРОВАНИЕ ПОДКЛЮЧЕНИЯ K FIREBASE
+async function testFirebaseConnection() {
+    if (!db) return;
+    
+    try {
+        // Пробуем сделать простой запрос для проверки подключения
+        await db.collection('test').limit(1).get();
+        console.log('✅ Подключение к Firebase работает');
+    } catch (error) {
+        console.error('❌ Ошибка подключения к Firebase:', error);
+        showFirebaseError(error);
+    }
+}
+
+// ПОКАЗАТЬ ОШИБКУ FIREBASE
+function showFirebaseError(error) {
+    const loadingPage = document.getElementById('loading-page');
+    if (loadingPage) {
+        loadingPage.innerHTML = `
+            <div class="loading-container">
+                <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
+                <div class="loading-text">Ошибка подключения</div>
+                <div class="loading-subtext">${error.message || 'Не удалось подключиться к серверу'}</div>
+                <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #fff; color: #000; border: none; border-radius: 5px; cursor: pointer;">
+                    Перезагрузить
+                </button>
+            </div>
+        `;
+    }
+}
+
+// ПОКАЗАТЬ ПРЕДУПРЕЖДЕНИЕ ОБ ОФФЛАЙН РЕЖИМЕ
+function showOfflineWarning() {
+    console.log('🔶 Работаем в оффлайн режиме');
 }
 
 function initInterface() {
@@ -297,23 +340,46 @@ function loadChatHistory() {
         
         const q = db.collection("messages")
             .where("chatKey", "==", chatKey)
-            .orderBy("timestamp", "asc");
+            .orderBy("timestamp", "asc")
+            .limit(50);
         
         unsubscribeMessages = q.onSnapshot((snapshot) => {
             const messages = [];
             snapshot.forEach((doc) => {
-                messages.push({ id: doc.id, ...doc.data() });
+                if (doc.exists) {
+                    messages.push({ id: doc.id, ...doc.data() });
+                }
             });
             
             console.log('📨 Загружено сообщений:', messages.length);
-            displayMessages(messages);
+            
+            if (messages.length === 0) {
+                showWelcomeMessage();
+            } else {
+                displayMessages(messages);
+            }
             
         }, (error) => {
             console.error('❌ Ошибка загрузки сообщений:', error);
+            
+            // Более детальная обработка ошибок
+            let errorMessage = 'Ошибка загрузки истории';
+            
+            if (error.code === 'permission-denied') {
+                errorMessage = 'Ошибка доступа. Проверьте правила Firestore';
+            } else if (error.code === 'unavailable') {
+                errorMessage = 'Нет подключения к интернету';
+            } else if (error.code === 'not-found') {
+                errorMessage = 'Коллекция не найдена';
+            }
+            
             messagesContainer.innerHTML = `
                 <div class="welcome-message">
-                    <div class="welcome-text">Ошибка загрузки истории</div>
-                    <div class="welcome-subtext">Проверьте подключение к интернету</div>
+                    <div class="welcome-text">${errorMessage}</div>
+                    <div class="welcome-subtext">Код ошибки: ${error.code}</div>
+                    <button onclick="loadChatHistory()" style="margin-top: 10px; padding: 8px 16px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        Повторить
+                    </button>
                 </div>
             `;
         });
@@ -322,8 +388,8 @@ function loadChatHistory() {
         console.error('❌ Ошибка настройки слушателя:', error);
         messagesContainer.innerHTML = `
             <div class="welcome-message">
-                <div class="welcome-text">Ошибка подключения</div>
-                <div class="welcome-subtext">Перезагрузите приложение</div>
+                <div class="welcome-text">Ошибка подключения к Firebase</div>
+                <div class="welcome-subtext">${error.message}</div>
             </div>
         `;
     }
