@@ -102,8 +102,9 @@ function checkPassword() {
             chatId: isValid.chatId
         };
         
-        // НИКАКОГО LOCALSTORAGE - только сессия!
+        // Сохраняем в оба хранилища
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        localStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
         showPage('app');
         loadUserInterface();
         
@@ -125,6 +126,7 @@ function loadUserInterface() {
     document.getElementById('currentUserStatus').textContent = 'online';
     
     loadContacts();
+    initInterface();
 }
 
 // ЗАГРУЗКА КОНТАКТОВ
@@ -166,6 +168,12 @@ function openChat(contact) {
         return;
     }
     
+    // Останавливаем предыдущую подписку
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
+    
     currentChat = contact;
     isChatOpen = true;
     
@@ -205,20 +213,36 @@ function loadChatHistory() {
             .orderBy("timestamp", "asc");
         
         unsubscribeMessages = q.onSnapshot((snapshot) => {
+            // Проверяем, есть ли данные
+            if (snapshot.empty) {
+                showWelcomeMessage();
+                return;
+            }
+            
             const messages = [];
             snapshot.forEach((doc) => {
-                messages.push({ id: doc.id, ...doc.data() });
+                if (doc.exists) {
+                    messages.push({ id: doc.id, ...doc.data() });
+                }
             });
             
             displayMessages(messages);
+        }, (error) => {
+            console.error('Ошибка подписки:', error);
+            messagesContainer.innerHTML = `
+                <div class="welcome-message">
+                    <div class="welcome-text">Ошибка загрузки</div>
+                    <div class="welcome-subtext">Попробуйте перезагрузить</div>
+                </div>
+            `;
         });
         
     } catch (error) {
         console.error('Ошибка загрузки истории:', error);
         messagesContainer.innerHTML = `
             <div class="welcome-message">
-                <div class="welcome-text">Ошибка загрузки истории</div>
-                <div class="welcome-subtext">Проверьте подключение</div>
+                <div class="welcome-text">Ошибка подключения</div>
+                <div class="welcome-subtext">Проверьте интернет</div>
             </div>
         `;
     }
@@ -249,7 +273,7 @@ async function sendMessage() {
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // Сохраняем ТОЛЬКО в Firebase - никакого localStorage!
+        // Сохраняем ТОЛЬКО в Firebase - глобальное хранение!
         await firebase.firestore().collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -374,10 +398,16 @@ function hideChatWindow() {
 // ПРОВЕРКА АВТОРИЗАЦИИ
 function checkAuthOnLoad() {
     try {
-        // ТОЛЬКО sessionStorage - очищается при закрытии вкладки
-        const savedUser = sessionStorage.getItem('wolf_current_user');
+        // Сначала проверяем sessionStorage, потом localStorage
+        let savedUser = sessionStorage.getItem('wolf_current_user');
+        if (!savedUser) {
+            savedUser = localStorage.getItem('wolf_current_user');
+        }
+        
         if (savedUser) {
             currentUser = JSON.parse(savedUser);
+            // Обновляем sessionStorage из localStorage
+            sessionStorage.setItem('wolf_current_user', savedUser);
             showPage('app');
             loadUserInterface();
         } else {
@@ -385,6 +415,7 @@ function checkAuthOnLoad() {
         }
     } catch (e) {
         sessionStorage.removeItem('wolf_current_user');
+        localStorage.removeItem('wolf_current_user');
         showPage('login-page');
     }
 }
@@ -400,8 +431,9 @@ function logout() {
         unsubscribeMessages = null;
     }
     
-    // Очищаем ТОЛЬКО sessionStorage
+    // Очищаем оба хранилища
     sessionStorage.removeItem('wolf_current_user');
+    localStorage.removeItem('wolf_current_user');
     showPage('login-page');
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
