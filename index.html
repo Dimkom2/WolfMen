@@ -7,6 +7,11 @@
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -58,7 +63,7 @@
                     <div class="profile-name" id="currentUserName">Не авторизован</div>
                     <div class="profile-status" id="currentUserStatus">offline</div>
                 </div>
-                <button onclick="logout()" class="logout-button">Выйти</button>
+                <button onclick="logout()" style="margin-left: 10px; padding: 5px 10px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer;">Выйти</button>
             </div>
         </div>
 
@@ -100,10 +105,6 @@
         </div>
     </div>
 
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-
     <script>
         // Firebase конфиг
         const firebaseConfig = {
@@ -131,40 +132,43 @@
         // Инициализируем Firebase с прогрессом
         updateLoadingProgress(10, 'Инициализация Firebase...');
         
-        try {
-            firebase.initializeApp(firebaseConfig);
-            updateLoadingProgress(40, 'Firebase подключен');
-            
-            // Загружаем основной скрипт
-            setTimeout(() => {
-                updateLoadingProgress(70, 'Загрузка приложения...');
-                const script = document.createElement('script');
-                script.src = 'script.js';
-                script.onload = function() {
-                    updateLoadingProgress(100, 'Готово!');
-                    setTimeout(() => {
-                        if (window.initApp) {
-                            window.initApp();
-                        }
-                    }, 500);
-                };
-                document.head.appendChild(script);
-            }, 800);
-            
-        } catch (error) {
-            console.error('Ошибка Firebase:', error);
-            updateLoadingProgress(100, 'Ошибка подключения');
-            setTimeout(() => {
-                const script = document.createElement('script');
-                script.src = 'script.js';
-                script.onload = function() {
+        // Ждем загрузки Firebase
+        if (typeof firebase === 'undefined') {
+            console.error('Firebase не загружен');
+            updateLoadingProgress(100, 'Ошибка загрузки Firebase');
+        } else {
+            try {
+                // Инициализируем Firebase
+                firebase.initializeApp(firebaseConfig);
+                updateLoadingProgress(40, 'Firebase подключен');
+                
+                console.log('✅ Firebase инициализирован');
+                
+            } catch (error) {
+                console.error('❌ Ошибка инициализации Firebase:', error);
+                updateLoadingProgress(100, 'Ошибка подключения');
+            }
+        }
+
+        // Загружаем основной скрипт
+        setTimeout(() => {
+            updateLoadingProgress(70, 'Загрузка приложения...');
+            const script = document.createElement('script');
+            script.src = 'script.js';
+            script.onload = function() {
+                updateLoadingProgress(100, 'Готово!');
+                setTimeout(() => {
                     if (window.initApp) {
                         window.initApp();
                     }
-                };
-                document.head.appendChild(script);
-            }, 1000);
-        }
+                }, 500);
+            };
+            script.onerror = function() {
+                updateLoadingProgress(100, 'Ошибка загрузки приложения');
+                console.error('Ошибка загрузки script.js');
+            };
+            document.head.appendChild(script);
+        }, 1000);
     </script>
 </body>
 </html>
