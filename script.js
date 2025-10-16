@@ -5,7 +5,8 @@ const CONFIG = {
     validAccounts: [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
         { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
-        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" }
+        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" },
+        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947" }
     ]
 };
 
@@ -578,3 +579,4 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, запуск приложения...');
     window.initApp = initApp;
 });
+
