@@ -122,15 +122,42 @@ function checkPassword() {
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    const isValid = CONFIG.validAccounts.find(acc => acc.login === login && acc.password === password);
+    console.log('Введенные данные:', { login, password });
 
-    if (isValid) {
+    // Детальная проверка каждого аккаунта
+    console.log('=== ПРОВЕРКА АККАУНТОВ ===');
+    let foundAccount = null;
+    
+    for (let i = 0; i < CONFIG.validAccounts.length; i++) {
+        const acc = CONFIG.validAccounts[i];
+        const loginMatch = acc.login === login;
+        const passwordMatch = acc.password === password;
+        
+        console.log(`Аккаунт ${i}:`, {
+            логин_в_базе: acc.login,
+            введенный_логин: login,
+            совпадение_логина: loginMatch,
+            пароль_в_базе: acc.password,
+            введенный_пароль: password,
+            совпадение_пароля: passwordMatch
+        });
+        
+        if (loginMatch && passwordMatch) {
+            foundAccount = acc;
+            console.log('✅ НАЙДЕН ПОДХОДЯЩИЙ АККАУНТ:', acc);
+            break;
+        }
+    }
+
+    if (foundAccount) {
         errorMessage.textContent = '';
         currentUser = {
-            login: login,
-            name: isValid.name,
-            chatId: isValid.chatId
+            login: foundAccount.login,
+            name: foundAccount.name,
+            chatId: foundAccount.chatId
         };
+        
+        console.log('✅ Создан currentUser:', currentUser);
         
         // Сохраняем в sessionStorage для текущей сессии
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
@@ -142,6 +169,7 @@ function checkPassword() {
         loadUserInterface();
         
     } else {
+        console.log('❌ АККАУНТ НЕ НАЙДЕН');
         errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
         document.getElementById('password').value = '';
     }
@@ -580,6 +608,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, запуск приложения...');
     window.initApp = initApp;
 });
+
 
 
 
