@@ -7,7 +7,7 @@ const CONFIG = {
         { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
         { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" },
         { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947" },
-        { login: "993", password: "KolynKolyan", name: "Агент 993", chatId: "993" }
+        { login: "993", password: "KolynKolyan@", name: "Агент 993", chatId: "993" }
     ]
 };
 
@@ -580,6 +580,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, запуск приложения...');
     window.initApp = initApp;
 });
+
 
 
 
