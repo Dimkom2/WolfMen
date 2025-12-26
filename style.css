@@ -595,6 +595,140 @@ body {
     font-size: 14px;
 }
 
+/* ГОЛОСОВЫЕ СООБЩЕНИЯ - НОВЫЕ СТИЛИ */
+.voice-message-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #333333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-right: 10px;
+    border: none;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+
+.voice-message-button.active {
+    background: #ffffff;
+}
+
+.voice-message-button img {
+    width: 20px;
+    height: 20px;
+}
+
+.recording-container {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    background: #111111;
+    border-radius: 25px;
+    margin-top: 10px;
+    display: none;
+}
+
+.recording-indicator {
+    width: 12px;
+    height: 12px;
+    background: #ff4444;
+    border-radius: 50%;
+    margin-right: 12px;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.3; }
+    100% { opacity: 1; }
+}
+
+.recording-timer {
+    color: #ffffff;
+    font-size: 14px;
+    font-family: 'Inter', monospace;
+    margin-right: 20px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cancel-recording-button {
+    background: none;
+    border: none;
+    color: #666666;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 5px;
+    margin-left: auto;
+}
+
+.cancel-recording-button:hover {
+    color: #ffffff;
+}
+
+.voice-message {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: #222222;
+    border-radius: 18px;
+    max-width: 70%;
+    align-self: flex-end;
+}
+
+.voice-message.received {
+    background: #111111;
+    align-self: flex-start;
+}
+
+.voice-play-button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.voice-play-button svg {
+    width: 16px;
+    height: 16px;
+    fill: #000000;
+}
+
+.voice-waveform {
+    flex: 1;
+    height: 30px;
+    background: #333333;
+    border-radius: 15px;
+    margin-right: 12px;
+    position: relative;
+    overflow: hidden;
+}
+
+.voice-waveform::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 30%;
+    height: 100%;
+    background: #ffffff;
+    border-radius: 15px;
+}
+
+.voice-duration {
+    font-size: 12px;
+    color: #666666;
+    font-variant-numeric: tabular-nums;
+}
+
 /* Адаптивность для мобильных устройств */
 @media (max-width: 768px) {
     .contacts-panel {
@@ -648,6 +782,10 @@ body {
     .wolf-logo-small {
         width: 28px;
         height: 28px;
+    }
+    
+    .voice-message {
+        max-width: 85%;
     }
 }
 
