@@ -597,15 +597,15 @@ body {
 
 /* ГОЛОСОВЫЕ СООБЩЕНИЯ - НОВЫЕ СТИЛИ */
 .voice-message-button {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: #333333;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    margin-right: 10px;
+    margin: 0 10px;
     border: none;
     flex-shrink: 0;
     transition: all 0.3s ease;
@@ -616,8 +616,8 @@ body {
 }
 
 .voice-message-button img {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
 }
 
 .recording-container {
@@ -631,8 +631,8 @@ body {
 }
 
 .recording-indicator {
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
     background: #ff4444;
     border-radius: 50%;
     margin-right: 12px;
@@ -640,9 +640,9 @@ body {
 }
 
 @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.3; }
-    100% { opacity: 1; }
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.3; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1); }
 }
 
 .recording-timer {
@@ -651,6 +651,23 @@ body {
     font-family: 'Inter', monospace;
     margin-right: 20px;
     font-variant-numeric: tabular-nums;
+    min-width: 45px;
+}
+
+.voice-visualizer {
+    flex: 1;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+.voice-bar {
+    width: 2px;
+    background: #ffffff;
+    border-radius: 1px;
+    transition: height 0.1s ease;
 }
 
 .cancel-recording-button {
@@ -660,7 +677,7 @@ body {
     font-size: 20px;
     cursor: pointer;
     padding: 0 5px;
-    margin-left: auto;
+    margin-left: 15px;
 }
 
 .cancel-recording-button:hover {
@@ -675,6 +692,7 @@ body {
     border-radius: 18px;
     max-width: 70%;
     align-self: flex-end;
+    min-width: 150px;
 }
 
 .voice-message.received {
@@ -694,6 +712,7 @@ body {
     cursor: pointer;
     margin-right: 12px;
     flex-shrink: 0;
+    padding: 0;
 }
 
 .voice-play-button svg {
@@ -705,28 +724,43 @@ body {
 .voice-waveform {
     flex: 1;
     height: 30px;
-    background: #333333;
-    border-radius: 15px;
-    margin-right: 12px;
     position: relative;
-    overflow: hidden;
+    display: flex;
+    align-items: center;
+    margin-right: 12px;
 }
 
-.voice-waveform::after {
-    content: '';
+.voice-waveform-bars {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    height: 20px;
+    width: 100%;
+}
+
+.voice-waveform-bar {
+    width: 2px;
+    background: #ffffff;
+    border-radius: 1px;
+    transition: height 0.3s ease;
+}
+
+.voice-progress {
     position: absolute;
     top: 0;
     left: 0;
-    width: 30%;
     height: 100%;
-    background: #ffffff;
-    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    width: 0%;
 }
 
 .voice-duration {
     font-size: 12px;
     color: #666666;
     font-variant-numeric: tabular-nums;
+    min-width: 40px;
+    text-align: right;
 }
 
 /* Адаптивность для мобильных устройств */
@@ -786,6 +820,10 @@ body {
     
     .voice-message {
         max-width: 85%;
+    }
+    
+    .voice-message-button {
+        margin: 0 8px;
     }
 }
 
