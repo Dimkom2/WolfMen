@@ -94,6 +94,9 @@
             
             <div class="input-container">
                 <div class="message-input-wrapper">
+                    <button class="voice-message-button" id="voiceMessageButton">
+                        <img src="microphone-off.png" alt="Голосовое сообщение" id="microphoneIcon">
+                    </button>
                     <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
                     <button class="send-button" onclick="sendMessage()" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -101,9 +104,16 @@
                         </svg>
                     </button>
                 </div>
+                <div class="recording-container" id="recordingContainer" style="display: none;">
+                    <div class="recording-indicator"></div>
+                    <div class="recording-timer" id="recordingTimer">00:00</div>
+                    <button class="cancel-recording-button" id="cancelRecordingButton">✕</button>
+                </div>
             </div>
         </div>
     </div>
+
+    <audio id="audioPlayer" style="display: none;"></audio>
 
     <script>
         // Firebase конфиг
