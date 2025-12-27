@@ -12,6 +12,8 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <!-- ДОБАВЛЯЕМ СТОРАДЖ ДЛЯ АУДИО -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-storage.js"></script>
 </head>
 <body>
     <!-- Экран загрузки -->
@@ -94,10 +96,10 @@
             
             <div class="input-container">
                 <div class="message-input-wrapper">
-                    <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
                     <button class="voice-message-button" id="voiceMessageButton">
                         <img src="microphone-off.png" alt="Голосовое сообщение" id="microphoneIcon">
                     </button>
+                    <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
                     <button class="send-button" onclick="sendMessage()" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                             <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
@@ -107,7 +109,6 @@
                 <div class="recording-container" id="recordingContainer" style="display: none;">
                     <div class="recording-indicator"></div>
                     <div class="recording-timer" id="recordingTimer">00:00</div>
-                    <div class="voice-visualizer" id="voiceVisualizer"></div>
                     <button class="cancel-recording-button" id="cancelRecordingButton">✕</button>
                 </div>
             </div>
@@ -122,7 +123,7 @@
             apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
             authDomain: "wolf-messendger.firebaseapp.com",
             projectId: "wolf-messendger",
-            storageBucket: "wolf-messendger.firebasestorage.app",
+            storageBucket: "wolf-messendger.firebasestorage.app", // <-- УБЕДИСЬ ЧТО ЗДЕСЬ ПРАВИЛЬНО
             messagingSenderId: "454406992399",
             appId: "1:454406992399:web:866c45d70ea30236a7297a"
         };
