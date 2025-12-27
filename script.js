@@ -15,7 +15,9 @@ let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
+let unsubscribeVoiceMessages = null;
 let db = null;
+let storage = null; // ДОБАВЛЯЕМ СТОРАДЖ
 
 // ГОЛОСОВЫЕ СООБЩЕНИЯ
 let mediaRecorder = null;
@@ -24,10 +26,6 @@ let isRecording = false;
 let recordingStartTime = 0;
 let recordingTimer = null;
 let audioStream = null;
-let audioContext = null;
-let analyser = null;
-let dataArray = null;
-let animationFrame = null;
 
 // Инициализация приложения
 function initApp() {
@@ -49,6 +47,9 @@ function initApp() {
         // Инициализируем Firestore
         db = firebase.firestore();
         
+        // ИНИЦИАЛИЗИРУЕМ STORAGE
+        storage = firebase.storage();
+        
         // Настраиваем кэш для оффлайн работы
         db.enablePersistence()
             .then(() => {
@@ -58,7 +59,7 @@ function initApp() {
                 console.warn('⚠️ Оффлайн режим не доступен:', err);
             });
         
-        console.log('✅ Firestore инициализирован');
+        console.log('✅ Firestore и Storage инициализированы');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации Firestore:', error);
@@ -144,9 +145,6 @@ async function startRecording() {
             }
         });
         
-        // Настраиваем аудиоанализ для визуализации
-        setupAudioVisualizer(audioStream);
-        
         // Создаем MediaRecorder
         mediaRecorder = new MediaRecorder(audioStream);
         audioChunks = [];
@@ -169,58 +167,12 @@ async function startRecording() {
         // Запускаем таймер
         startRecordingTimer();
         
-        // Запускаем визуализацию
-        updateVoiceVisualizer();
-        
         console.log('🎤 Запись начата');
         
     } catch (error) {
         console.error('❌ Ошибка доступа к микрофону:', error);
         alert('Не удалось получить доступ к микрофону. Проверьте разрешения.');
     }
-}
-
-// НАСТРОЙКА ВИЗУАЛИЗАТОРА АУДИО
-function setupAudioVisualizer(stream) {
-    try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
-        const bufferLength = analyser.frequencyBinCount;
-        dataArray = new Uint8Array(bufferLength);
-    } catch (error) {
-        console.error('Ошибка настройки визуализатора:', error);
-    }
-}
-
-// ОБНОВЛЕНИЕ ВИЗУАЛИЗАТОРА ГОЛОСА
-function updateVoiceVisualizer() {
-    if (!isRecording || !analyser) return;
-    
-    analyser.getByteFrequencyData(dataArray);
-    const visualizer = document.getElementById('voiceVisualizer');
-    
-    if (visualizer) {
-        visualizer.innerHTML = '';
-        const barCount = 20;
-        
-        for (let i = 0; i < barCount; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'voice-bar';
-            
-            // Берем среднее значение из соответствующего диапазона частот
-            const dataIndex = Math.floor((i / barCount) * dataArray.length);
-            let height = (dataArray[dataIndex] / 255) * 20;
-            height = Math.max(2, height); // Минимальная высота
-            
-            bar.style.height = height + 'px';
-            visualizer.appendChild(bar);
-        }
-    }
-    
-    animationFrame = requestAnimationFrame(updateVoiceVisualizer);
 }
 
 // ОСТАНОВИТЬ ЗАПИСЬ И ОТПРАВИТЬ
@@ -231,12 +183,8 @@ async function stopRecordingAndSend() {
     mediaRecorder.stop();
     isRecording = false;
     
-    // Останавливаем таймер и визуализацию
+    // Останавливаем таймер
     stopRecordingTimer();
-    if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
-        animationFrame = null;
-    }
     
     // Обновляем интерфейс
     updateRecordingUI(false);
@@ -260,17 +208,15 @@ async function stopRecordingAndSend() {
                 return;
             }
             
+            // Показываем временное сообщение в интерфейсе
+            const tempId = 'voice_temp_' + Date.now();
+            addVoiceMessageToUI(duration, 'sent', getCurrentTime(), tempId, true);
+            
             // Отправляем голосовое сообщение
-            await sendVoiceMessage(audioBlob, duration);
+            await sendVoiceMessage(audioBlob, duration, tempId);
             
             // Очищаем данные
             audioChunks = [];
-            
-            // Останавливаем аудиоконтекст
-            if (audioContext) {
-                audioContext.close();
-                audioContext = null;
-            }
             
             // Останавливаем поток микрофона
             if (audioStream) {
@@ -281,6 +227,18 @@ async function stopRecordingAndSend() {
         } catch (error) {
             console.error('❌ Ошибка обработки записи:', error);
             alert('Ошибка при отправке голосового сообщения');
+            
+            // Помечаем временное сообщение как ошибку
+            const tempElement = document.querySelector(`[data-message-id="voice_temp_${Date.now()}"]`);
+            if (tempElement) {
+                tempElement.classList.add('error');
+                tempElement.innerHTML = `
+                    <div class="message-content">
+                        <div class="message-text">❌ Ошибка отправки голосового сообщения</div>
+                        <div class="message-time">${getCurrentTime()}</div>
+                    </div>
+                `;
+            }
         }
     };
 }
@@ -293,24 +251,14 @@ function cancelRecording() {
     mediaRecorder.stop();
     isRecording = false;
     
-    // Останавливаем таймер и визуализацию
+    // Останавливаем таймер
     stopRecordingTimer();
-    if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
-        animationFrame = null;
-    }
     
     // Обновляем интерфейс
     updateRecordingUI(false);
     
     // Очищаем данные
     audioChunks = [];
-    
-    // Останавливаем аудиоконтекст
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
     
     // Останавливаем поток микрофона
     if (audioStream) {
@@ -375,61 +323,60 @@ function stopRecordingTimer() {
 }
 
 // ОТПРАВКА ГОЛОСОВОГО СООБЩЕНИЯ
-async function sendVoiceMessage(audioBlob, duration) {
-    if (!currentUser || !currentChat || !db) return;
-    
-    // Показываем сообщение сразу
-    const tempId = 'voice_temp_' + Date.now();
-    addVoiceMessageToUI(duration, 'sent', getCurrentTime(), tempId, true);
+async function sendVoiceMessage(audioBlob, duration, tempId) {
+    if (!currentUser || !currentChat || !db || !storage) {
+        console.error('❌ Не инициализированы Firebase или пользователь');
+        return;
+    }
     
     try {
         const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         const timestamp = firebase.firestore.FieldValue.serverTimestamp();
         
-        // Конвертируем Blob в Base64 для хранения в Firestore
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
+        // 1. Загружаем аудио в Firebase Storage
+        const fileName = `voice_${Date.now()}_${currentUser.chatId}_${currentChat.chatId}.webm`;
+        const storageRef = storage.ref().child('voice_messages/' + fileName);
         
-        reader.onloadend = async () => {
-            const base64Audio = reader.result;
-            
-            // Сохраняем в Firebase
-            const docRef = await db.collection("voice_messages").add({
-                from: currentUser.chatId,
-                fromName: currentUser.name,
-                to: currentChat.chatId,
-                toName: currentChat.name,
-                audioData: base64Audio,
-                duration: duration,
-                chatKey: chatKey,
-                timestamp: timestamp
-            });
-            
-            console.log('✅ Голосовое сообщение сохранено в Firebase с ID:', docRef.id);
-            
-            // Удаляем временное сообщение
-            const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
-            if (tempElement) {
-                tempElement.remove();
-            }
+        console.log('📤 Загружаем аудио в Storage:', fileName);
+        
+        // Загружаем файл
+        const uploadTask = await storageRef.put(audioBlob);
+        
+        // Получаем URL для скачивания
+        const downloadURL = await uploadTask.ref.getDownloadURL();
+        
+        console.log('✅ Аудио загружено, URL:', downloadURL);
+        
+        // 2. Сохраняем метаданные в Firestore
+        const voiceMessageData = {
+            from: currentUser.chatId,
+            fromName: currentUser.name,
+            to: currentChat.chatId,
+            toName: currentChat.name,
+            audioURL: downloadURL,
+            fileName: fileName,
+            duration: duration,
+            chatKey: chatKey,
+            timestamp: timestamp
         };
+        
+        const docRef = await db.collection("voice_messages").add(voiceMessageData);
+        
+        console.log('✅ Голосовое сообщение сохранено в Firestore с ID:', docRef.id);
+        
+        // 3. Удаляем временное сообщение из интерфейса
+        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempElement) {
+            tempElement.remove();
+        }
         
     } catch (error) {
         console.error('❌ Ошибка отправки голосового сообщения:', error);
-        
-        // Помечаем сообщение как ошибку
-        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
-        if (tempElement) {
-            tempElement.classList.add('error');
-            const textElement = tempElement.querySelector('.message-text');
-            if (textElement) {
-                textElement.textContent = '❌ Ошибка отправки голосового сообщения';
-            }
-        }
+        throw error;
     }
 }
 
-// ДОБАВЛЕНИЕ ГОЛОСОВОГО СООБЩЕНИЯ В ИНТЕРФЕЙС
+// ДОБАВЛЕНИЕ ГОЛОСОВОГО СООБЩЕНИЯ В ИНТЕРФЕЙС (ВРЕМЕННОЕ)
 function addVoiceMessageToUI(duration, type, time, messageId, shouldScroll = true) {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer) return;
@@ -448,25 +395,13 @@ function addVoiceMessageToUI(duration, type, time, messageId, shouldScroll = tru
     const seconds = duration % 60;
     const durationText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
     
-    // Создаем случайные бары для визуализации
-    let waveformBars = '';
-    for (let i = 0; i < 20; i++) {
-        const randomHeight = Math.floor(Math.random() * 20) + 2;
-        waveformBars += `<div class="voice-waveform-bar" style="height:${randomHeight}px"></div>`;
-    }
-    
     messageDiv.innerHTML = `
-        <button class="voice-play-button" onclick="playVoiceMessage(this, '${messageId}')">
+        <button class="voice-play-button">
             <svg viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
             </svg>
         </button>
-        <div class="voice-waveform">
-            <div class="voice-waveform-bars">
-                ${waveformBars}
-            </div>
-            <div class="voice-progress"></div>
-        </div>
+        <div class="voice-waveform"></div>
         <div class="voice-duration">${durationText}</div>
     `;
     
@@ -477,50 +412,156 @@ function addVoiceMessageToUI(duration, type, time, messageId, shouldScroll = tru
     }
 }
 
-// ВОСПРОИЗВЕДЕНИЕ ГОЛОСОВОГО СООБЩЕНИЯ
-function playVoiceMessage(button, messageId) {
-    const svg = button.querySelector('svg');
-    const isPlaying = svg.getAttribute('data-playing') === 'true';
+// ЗАГРУЗКА ГОЛОСОВЫХ СООБЩЕНИЙ ИЗ FIREBASE
+function loadVoiceMessages() {
+    if (!currentUser || !currentChat || !db) return;
     
-    if (isPlaying) {
-        // Останавливаем воспроизведение
-        svg.innerHTML = '<path d="M8 5v14l11-7z"/>';
-        svg.setAttribute('data-playing', 'false');
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    // Останавливаем предыдущий слушатель
+    if (unsubscribeVoiceMessages) {
+        unsubscribeVoiceMessages();
+        unsubscribeVoiceMessages = null;
+    }
+    
+    try {
+        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
         
-        const audioPlayer = document.getElementById('audioPlayer');
-        audioPlayer.pause();
-    } else {
-        // Начинаем воспроизведение
-        svg.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
-        svg.setAttribute('data-playing', 'true');
+        console.log('🔊 Загружаем голосовые сообщения для чата:', chatKey);
         
-        // TODO: Загрузить и воспроизвести аудио из Firebase
-        // Временно: симуляция воспроизведения
-        simulatePlayback(button, messageId);
+        // Создаем слушатель для голосовых сообщений
+        unsubscribeVoiceMessages = db.collection("voice_messages")
+            .where("chatKey", "==", chatKey)
+            .orderBy("timestamp", "asc")
+            .onSnapshot((snapshot) => {
+                console.log('📥 Получены голосовые сообщения:', snapshot.size);
+                
+                // Для каждого голосового сообщения
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === "added") {
+                        const voiceData = change.doc.data();
+                        const messageId = change.doc.id;
+                        
+                        // Проверяем, нет ли уже такого сообщения в интерфейсе
+                        const existingMessage = document.querySelector(`[data-message-id="${messageId}"]`);
+                        if (existingMessage) return;
+                        
+                        // Определяем тип сообщения (отправлено или получено)
+                        const messageType = voiceData.from === currentUser.chatId ? 'sent' : 'received';
+                        const time = voiceData.timestamp ? formatFirebaseTime(voiceData.timestamp) : getCurrentTime();
+                        
+                        // Добавляем голосовое сообщение в интерфейс
+                        addRealVoiceMessageToUI(voiceData, messageType, time, messageId, false);
+                    }
+                });
+                
+                scrollToBottom();
+                
+            }, (error) => {
+                console.error('❌ Ошибка загрузки голосовых сообщений:', error);
+            });
+        
+    } catch (error) {
+        console.error('❌ Ошибка настройки слушателя голосовых сообщений:', error);
     }
 }
 
-// СИМУЛЯЦИЯ ВОСПРОИЗВЕДЕНИЯ (временная функция)
-function simulatePlayback(button, messageId) {
-    const voiceWaveform = button.closest('.voice-message').querySelector('.voice-waveform');
-    const progressBar = voiceWaveform.querySelector('.voice-progress');
-    const durationText = button.closest('.voice-message').querySelector('.voice-duration');
+// ДОБАВЛЕНИЕ РЕАЛЬНОГО ГОЛОСОВОГО СООБЩЕНИЯ (С ДАННЫМИ ИЗ FIREBASE)
+function addRealVoiceMessageToUI(voiceData, type, time, messageId, shouldScroll = true) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
     
-    let progress = 0;
-    const duration = 10; // Временная длительность 10 секунд
+    const welcomeMsg = messagesContainer.querySelector('.welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
     
-    const interval = setInterval(() => {
-        progress += 100 / (duration * 10);
-        progressBar.style.width = progress + '%';
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `voice-message ${type}`;
+    messageDiv.dataset.messageId = messageId;
+    messageDiv.dataset.audioUrl = voiceData.audioURL;
+    
+    // Форматируем длительность
+    const minutes = Math.floor(voiceData.duration / 60);
+    const seconds = voiceData.duration % 60;
+    const durationText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    messageDiv.innerHTML = `
+        <button class="voice-play-button" onclick="playRealVoiceMessage('${messageId}')">
+            <svg viewBox="0 0 24 24" data-playing="false">
+                <path d="M8 5v14l11-7z"/>
+            </svg>
+        </button>
+        <div class="voice-waveform"></div>
+        <div class="voice-duration">${durationText}</div>
+        <div class="message-time" style="font-size: 10px; opacity: 0.5; margin-left: 10px;">${time}</div>
+    `;
+    
+    messagesContainer.appendChild(messageDiv);
+    
+    if (shouldScroll) {
+        scrollToBottom();
+    }
+}
+
+// ВОСПРОИЗВЕДЕНИЕ РЕАЛЬНОГО ГОЛОСОВОГО СООБЩЕНИЯ
+async function playRealVoiceMessage(messageId) {
+    try {
+        const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (!messageElement) return;
         
-        if (progress >= 100) {
-            clearInterval(interval);
-            const svg = button.querySelector('svg');
+        const button = messageElement.querySelector('.voice-play-button');
+        const svg = button.querySelector('svg');
+        const isPlaying = svg.getAttribute('data-playing') === 'true';
+        const audioURL = messageElement.dataset.audioUrl;
+        
+        if (!audioURL) {
+            console.error('❌ Нет URL для воспроизведения');
+            return;
+        }
+        
+        const audioPlayer = document.getElementById('audioPlayer');
+        
+        if (isPlaying) {
+            // Если уже играет - останавливаем
+            audioPlayer.pause();
             svg.innerHTML = '<path d="M8 5v14l11-7z"/>';
             svg.setAttribute('data-playing', 'false');
-            progressBar.style.width = '0%';
+            return;
         }
-    }, 100);
+        
+        // Останавливаем все другие воспроизведения
+        document.querySelectorAll('.voice-play-button svg[data-playing="true"]').forEach(otherSvg => {
+            otherSvg.innerHTML = '<path d="M8 5v14l11-7z"/>';
+            otherSvg.setAttribute('data-playing', 'false');
+        });
+        
+        // Воспроизводим аудио
+        audioPlayer.src = audioURL;
+        audioPlayer.play();
+        
+        svg.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        svg.setAttribute('data-playing', 'true');
+        
+        // Слушаем окончание воспроизведения
+        audioPlayer.onended = function() {
+            svg.innerHTML = '<path d="M8 5v14l11-7z"/>';
+            svg.setAttribute('data-playing', 'false');
+        };
+        
+        // Слушаем ошибки воспроизведения
+        audioPlayer.onerror = function() {
+            console.error('❌ Ошибка воспроизведения аудио');
+            svg.innerHTML = '<path d="M8 5v14l11-7z"/>';
+            svg.setAttribute('data-playing', 'false');
+            alert('Не удалось воспроизвести голосовое сообщение');
+        };
+        
+    } catch (error) {
+        console.error('❌ Ошибка воспроизведения:', error);
+        alert('Ошибка при воспроизведении голосового сообщения');
+    }
 }
 
 function handleResize() {
@@ -740,7 +781,7 @@ function openChat(contact) {
     document.querySelector('.send-button').disabled = false;
     
     loadChatHistory();
-    loadVoiceMessages();
+    loadVoiceMessages(); // ВАЖНО: добавляем загрузку голосовых сообщений
     
     if (window.innerWidth <= 768) {
         showChatWindow();
@@ -814,21 +855,6 @@ function loadChatHistory() {
                 <div class="welcome-subtext">${error.message}</div>
             </div>
         `;
-    }
-}
-
-// ЗАГРУЗКА ГОЛОСОВЫХ СООБЩЕНИЙ
-function loadVoiceMessages() {
-    if (!currentUser || !currentChat || !db) return;
-    
-    try {
-        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-        
-        // TODO: Добавить слушатель для голосовых сообщений
-        // Аналогично loadChatHistory, но для коллекции voice_messages
-        
-    } catch (error) {
-        console.error('Ошибка загрузки голосовых сообщений:', error);
     }
 }
 
@@ -1170,6 +1196,11 @@ async function logout() {
     if (unsubscribeMessages) {
         unsubscribeMessages();
         unsubscribeMessages = null;
+    }
+    
+    if (unsubscribeVoiceMessages) {
+        unsubscribeVoiceMessages();
+        unsubscribeVoiceMessages = null;
     }
     
     sessionStorage.removeItem('wolf_current_user');
