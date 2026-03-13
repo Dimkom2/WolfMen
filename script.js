@@ -7,7 +7,8 @@ const CONFIG = {
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
         { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
         { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" },
-        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456" },
+        { login: "836", password: "Pchela836@", name: "Агент 836", chatId: "836" },
+        { login: "456", password: "Utka2021@", name: "Агент 456", chatId: "456" },
         { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947" }
     ],
     adminLogins: ["247", "001"]  // кто может выполнять /add
