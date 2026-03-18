@@ -59,6 +59,7 @@ function initApp() {
     try {
         db = firebase.firestore();
         auth = firebase.auth();
+        // Включаем оффлайн persistence, но игнорируем ошибки (они не критичны)
         db.enablePersistence()
             .then(() => console.log('✅ Оффлайн поддержка включена'))
             .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
@@ -74,32 +75,66 @@ function initApp() {
     
     initInterface();
     
-    ensurePredefinedUsers();
-    
-    // FIX: Обработка выхода из аккаунта
+    // Слушаем изменения аутентификации
     auth.onAuthStateChanged(async (user) => {
         if (user) {
+            // Пользователь вошёл – загружаем его данные
             const saved = sessionStorage.getItem('wolf_current_user');
             if (saved && !currentUser) {
                 currentUser = JSON.parse(saved);
                 showPage('app');
                 await loadUserInterface();
                 updateUserStatus(true);
+            } else if (!currentUser) {
+                // Если нет currentUser, но user есть – пытаемся восстановить
+                await restoreUserSession(user);
             }
         } else {
+            // Пользователь вышел
             if (currentUser) {
-                console.log('⚠️ Сессия Auth завершена, выполняем logout');
                 await forceLogout();
+            } else {
+                // Просто показываем страницу входа
+                showPage('login-page');
             }
         }
     });
     
-    setTimeout(() => {
-        checkAuthOnLoad();
-    }, 500);
+    // Показываем страницу входа сразу
+    showPage('login-page');
 }
 
-// FIX: Принудительный выход
+// Восстановление сессии по данным Auth
+async function restoreUserSession(user) {
+    try {
+        // Ищем пользователя в Firestore по authUid
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('authUid', '==', user.uid).get();
+        if (!snapshot.empty) {
+            const userDoc = snapshot.docs[0];
+            const userData = userDoc.data();
+            currentUser = {
+                login: userData.login,
+                name: userData.name,
+                chatId: userData.chatId,
+                isAdmin: userData.isAdmin || false,
+                uid: user.uid
+            };
+            sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+            showPage('app');
+            await loadUserInterface();
+            updateUserStatus(true);
+        } else {
+            // Если пользователь не найден в Firestore – разлогиниваем
+            await auth.signOut();
+        }
+    } catch (error) {
+        console.error('Ошибка восстановления сессии:', error);
+        await auth.signOut();
+    }
+}
+
+// Принудительный выход
 async function forceLogout() {
     if (currentUser) {
         await updateUserStatus(false);
@@ -114,35 +149,6 @@ async function forceLogout() {
     document.getElementById('password').value = '';
 }
 
-// Создание предустановленных пользователей в Firestore
-async function ensurePredefinedUsers() {
-    const predefinedUsers = [
-        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
-        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
-        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749", isAdmin: false },
-        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456", isAdmin: false },
-        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947", isAdmin: false }
-    ];
-    
-    for (const user of predefinedUsers) {
-        const userRef = db.collection('users').doc(user.chatId);
-        const doc = await userRef.get();
-        if (!doc.exists) {
-            const salt = generateSalt();
-            await userRef.set({
-                login: user.login,
-                name: user.name,
-                chatId: user.chatId,
-                isAdmin: user.isAdmin,
-                salt: salt,
-                passwordHash: hashPasswordWithSalt(user.password, salt),
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            console.log(`✅ Создан пользователь ${user.login} в Firestore`);
-        }
-    }
-}
-
 // Функция входа
 async function checkPassword() {
     const login = document.getElementById('login').value;
@@ -150,6 +156,7 @@ async function checkPassword() {
     const errorMessage = document.getElementById('error-message');
 
     try {
+        // Ищем пользователя в Firestore по логину
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('login', '==', login).get();
         
@@ -493,7 +500,6 @@ async function handleAddCommand(message) {
     }
 }
 
-// FIX: возвращаем флаг, был ли добавлен контакт
 async function addContact(userId, contactId) {
     const ref = db.collection('contacts').doc(userId);
     let added = false;
@@ -590,7 +596,6 @@ function showAgreement() {
     document.body.appendChild(modal);
 }
 
-// FIX: добавлена проверка длины сообщения
 const MAX_MESSAGE_LENGTH = 5000;
 
 async function sendMessage() {
@@ -604,7 +609,7 @@ async function sendMessage() {
     }
     if (handleCommand(text)) { input.value = ''; return; }
     
-    // FIX: получаем toUid из базы
+    // Получаем toUid из базы
     let toUid = null;
     try {
         const userDoc = await db.collection('users').doc(currentChat.chatId).get();
@@ -761,16 +766,6 @@ function handleResize() {
             chat.style.display = 'none';
             document.querySelector('.contacts-panel').style.display = 'flex';
         }
-    }
-}
-
-async function checkAuthOnLoad() {
-    try {
-        await ensurePredefinedUsers();
-        // Если уже есть аутентифицированный пользователь, onAuthStateChanged подхватит
-    } catch (e) {
-        console.error('Ошибка загрузки:', e);
-        showPage('login-page');
     }
 }
 
