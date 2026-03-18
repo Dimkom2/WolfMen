@@ -74,13 +74,12 @@ function initApp() {
     
     initInterface();
     
-    // Создаём пользователей, если их нет (только при открытой странице входа)
+    // Создаём пользователей, если их нет
     ensurePredefinedUsers().catch(console.error);
     
     // Слушаем изменения аутентификации
     auth.onAuthStateChanged(async (user) => {
         if (user) {
-            // Пользователь вошёл – загружаем его данные
             const saved = sessionStorage.getItem('wolf_current_user');
             if (saved && !currentUser) {
                 currentUser = JSON.parse(saved);
@@ -88,20 +87,24 @@ function initApp() {
                 await loadUserInterface();
                 updateUserStatus(true);
             } else if (!currentUser) {
-                // Если нет currentUser, но user есть – пытаемся восстановить
-                await restoreUserSession(user);
+                const restored = await restoreUserSession(user);
+                if (!restored) {
+                    await auth.signOut();
+                }
             }
         } else {
-            // Пользователь вышел – показываем страницу входа
-            showPage('login-page');
             if (currentUser) {
                 await forceLogout();
+            } else {
+                showPage('login-page');
             }
         }
     });
     
-    // Показываем страницу входа сразу
-    showPage('login-page');
+    // Если нет текущего пользователя в Auth, показываем страницу входа
+    if (!auth.currentUser) {
+        showPage('login-page');
+    }
 }
 
 // Создание предустановленных пользователей в Firestore
@@ -110,7 +113,7 @@ async function ensurePredefinedUsers() {
     const snapshot = await usersRef.get();
     if (!snapshot.empty) {
         console.log('👥 Пользователи уже существуют');
-        return; // уже есть пользователи
+        return;
     }
 
     const predefinedUsers = [
@@ -141,10 +144,21 @@ async function ensurePredefinedUsers() {
 async function restoreUserSession(user) {
     try {
         const usersRef = db.collection('users');
-        const snapshot = await usersRef.where('authUid', '==', user.uid).get();
+        let snapshot = await usersRef.where('authUid', '==', user.uid).get();
+        
+        if (snapshot.empty) {
+            const emailLogin = user.email ? user.email.split('@')[0] : null;
+            if (emailLogin) {
+                snapshot = await usersRef.where('login', '==', emailLogin).get();
+            }
+        }
+        
         if (!snapshot.empty) {
             const userDoc = snapshot.docs[0];
             const userData = userDoc.data();
+            if (!userData.authUid) {
+                await userDoc.ref.update({ authUid: user.uid });
+            }
             currentUser = {
                 login: userData.login,
                 name: userData.name,
@@ -156,12 +170,18 @@ async function restoreUserSession(user) {
             showPage('app');
             await loadUserInterface();
             updateUserStatus(true);
+            return true;
         } else {
+            console.warn('Пользователь не найден в Firestore, выходим');
             await auth.signOut();
+            showPage('login-page');
+            return false;
         }
     } catch (error) {
         console.error('Ошибка восстановления сессии:', error);
         await auth.signOut();
+        showPage('login-page');
+        return false;
     }
 }
 
