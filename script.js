@@ -1,32 +1,54 @@
-// Инициализация Telegram Mini Apps
-const tg = window.Telegram.WebApp;
+// ✨ Секретная соль для шифрования
+const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
 
-// Конфигурация аккаунтов (только для аутентификации)
-const CONFIG = {
-    validAccounts: [
-        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247" },
-        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001" },
-        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749" },
-        { login: "836", password: "Pchela836@", name: "Агент 836", chatId: "836" },
-        { login: "456", password: "Utka2021@", name: "Агент 456", chatId: "456" },
-        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947" }
-    ],
-    adminLogins: ["247", "001"]  // кто может выполнять /add
-};
+// ✨ Функции шифрования/дешифрования
+function encryptText(text, key) {
+    const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
+    const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
+    const encrypted = CryptoJS.AES.encrypt(text, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+    return encrypted.toString();
+}
+
+function decryptText(encryptedText, key) {
+    try {
+        const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
+        const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
+        const decrypted = CryptoJS.AES.decrypt(encryptedText, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+        return decrypted.toString(CryptoJS.enc.Utf8);
+    } catch (e) {
+        console.error('Ошибка расшифровки:', e);
+        return '[Ошибка расшифровки]';
+    }
+}
+
+// ✨ Хеширование пароля с солью
+function hashPasswordWithSalt(password, salt) {
+    return CryptoJS.SHA256(password + salt).toString();
+}
+
+function generateSalt() {
+    return CryptoJS.lib.WordArray.random(16).toString();
+}
+
+// ✨ Генерация ключа шифрования для чата
+function generateChatKey(userId1, userId2) {
+    const sortedIds = [userId1, userId2].sort().join('_');
+    return CryptoJS.SHA256(sortedIds + ENCRYPTION_SALT).toString();
+}
+
+// Инициализация Telegram
+const tg = window.Telegram?.WebApp;
 
 let currentUser = null;
 let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
 let db = null;
+let auth = null;
 
 // Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
-    
-    if (!navigator.onLine) {
-        console.warn('⚠️ Приложение запущено в оффлайн режиме');
-    }
     
     if (typeof firebase === 'undefined') {
         console.error('❌ Firebase не загружен!');
@@ -36,6 +58,7 @@ function initApp() {
     
     try {
         db = firebase.firestore();
+        auth = firebase.auth();
         db.enablePersistence()
             .then(() => console.log('✅ Оффлайн поддержка включена'))
             .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
@@ -44,204 +67,187 @@ function initApp() {
         console.error('❌ Ошибка инициализации Firestore:', error);
     }
     
-    tg.expand();
-    tg.ready();
+    if (tg) {
+        tg.expand();
+        tg.ready();
+    }
     
     initInterface();
+    
+    ensurePredefinedUsers();
+    
+    // FIX: Обработка выхода из аккаунта
+    auth.onAuthStateChanged(async (user) => {
+        if (user) {
+            const saved = sessionStorage.getItem('wolf_current_user');
+            if (saved && !currentUser) {
+                currentUser = JSON.parse(saved);
+                showPage('app');
+                await loadUserInterface();
+                updateUserStatus(true);
+            }
+        } else {
+            if (currentUser) {
+                console.log('⚠️ Сессия Auth завершена, выполняем logout');
+                await forceLogout();
+            }
+        }
+    });
     
     setTimeout(() => {
         checkAuthOnLoad();
     }, 500);
 }
 
-function initInterface() {
-    const messageInput = document.getElementById('messageInput');
-    if (messageInput) {
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-        
-        messageInput.addEventListener('focus', function() {
-            if (window.innerWidth <= 768 && currentChat) {
-                isChatOpen = true;
-                showChatWindow();
-            }
-        });
+// FIX: Принудительный выход
+async function forceLogout() {
+    if (currentUser) {
+        await updateUserStatus(false);
     }
-    
-    window.addEventListener('resize', handleResize);
-    handleResize();
+    currentUser = null;
+    currentChat = null;
+    isChatOpen = false;
+    if (unsubscribeMessages) unsubscribeMessages();
+    sessionStorage.removeItem('wolf_current_user');
+    showPage('login-page');
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
 }
 
-function handleResize() {
-    if (window.innerWidth > 768) {
-        document.querySelector('.contacts-panel').style.display = 'flex';
-        document.querySelector('.contacts-panel').style.width = '35%';
-        document.querySelector('.chat-window').style.display = 'flex';
-        document.querySelector('.chat-window').style.width = '65%';
-        document.querySelector('.header-back').style.display = 'none';
-    } else {
-        const contactsPanel = document.querySelector('.contacts-panel');
-        const chatWindow = document.querySelector('.chat-window');
-        const headerBack = document.querySelector('.header-back');
-        
-        if (contactsPanel) contactsPanel.style.display = 'flex';
-        if (headerBack) headerBack.style.display = 'block';
-        
-        if (chatWindow) {
-            if (isChatOpen && currentChat) {
-                chatWindow.style.display = 'flex';
-                if (contactsPanel) contactsPanel.style.display = 'none';
-            } else {
-                chatWindow.style.display = 'none';
-                if (contactsPanel) contactsPanel.style.display = 'flex';
-            }
+// Создание предустановленных пользователей в Firestore
+async function ensurePredefinedUsers() {
+    const predefinedUsers = [
+        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
+        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
+        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749", isAdmin: false },
+        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456", isAdmin: false },
+        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947", isAdmin: false }
+    ];
+    
+    for (const user of predefinedUsers) {
+        const userRef = db.collection('users').doc(user.chatId);
+        const doc = await userRef.get();
+        if (!doc.exists) {
+            const salt = generateSalt();
+            await userRef.set({
+                login: user.login,
+                name: user.name,
+                chatId: user.chatId,
+                isAdmin: user.isAdmin,
+                salt: salt,
+                passwordHash: hashPasswordWithSalt(user.password, salt),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`✅ Создан пользователь ${user.login} в Firestore`);
         }
     }
 }
 
-// Проверка пароля
-function checkPassword() {
-    console.log('=== checkPassword вызвана ===');
-    
+// Функция входа
+async function checkPassword() {
     const login = document.getElementById('login').value;
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
-    let foundAccount = null;
-    for (let acc of CONFIG.validAccounts) {
-        if (acc.login === login && acc.password === password) {
-            foundAccount = acc;
-            break;
-        }
-    }
-
-    if (foundAccount) {
-        errorMessage.textContent = '';
-        currentUser = {
-            login: foundAccount.login,
-            name: foundAccount.name,
-            chatId: foundAccount.chatId,
-            isAdmin: CONFIG.adminLogins.includes(foundAccount.login)
-        };
+    try {
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('login', '==', login).get();
         
-        console.log('✅ Создан currentUser:', currentUser);
+        if (snapshot.empty) {
+            errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
+            document.getElementById('password').value = '';
+            return;
+        }
+        
+        const userDoc = snapshot.docs[0];
+        const userData = userDoc.data();
+        const hash = hashPasswordWithSalt(password, userData.salt || '');
+        
+        if (userData.passwordHash !== hash) {
+            errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
+            document.getElementById('password').value = '';
+            return;
+        }
+
+        const email = login + '@wolf.com';
+        
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
+            console.log('✅ Вход через Auth выполнен');
+        } catch (authError) {
+            if (authError.code === 'auth/user-not-found') {
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                console.log('✅ Создан пользователь в Auth:', userCredential.user.uid);
+                await userDoc.ref.update({
+                    authUid: userCredential.user.uid,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                throw authError;
+            }
+        }
+        
+        const authUser = auth.currentUser;
+        if (!authUser) throw new Error('Не удалось получить auth пользователя');
+        
+        if (!userData.authUid) {
+            await userDoc.ref.update({ authUid: authUser.uid });
+        } else if (userData.authUid !== authUser.uid) {
+            await userDoc.ref.update({ authUid: authUser.uid });
+        }
+        
+        currentUser = {
+            login: userData.login,
+            name: userData.name,
+            chatId: userData.chatId,
+            isAdmin: userData.isAdmin || false,
+            uid: authUser.uid
+        };
         
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
         
-        // Инициализируем запись пользователя в Firebase и обрабатываем возможные ошибки
-        initUserInFirebase()
-            .then(() => {
-                updateUserStatus(true);
-                showPage('app');
-                loadUserInterface();
-            })
-            .catch((error) => {
-                console.error('❌ Ошибка инициализации:', error);
-                errorMessage.textContent = 'Ошибка подключения к серверу. Попробуйте позже.';
-                currentUser = null;
-                sessionStorage.removeItem('wolf_current_user');
-            });
-    } else {
-        console.log('❌ АККАУНТ НЕ НАЙДЕН');
-        errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
-        document.getElementById('password').value = '';
-    }
-}
-
-// Создание/обновление пользователя и его контактов в Firebase
-async function initUserInFirebase() {
-    if (!db || !currentUser) return;
-    
-    try {
-        // Запись в коллекцию users (информация о пользователе)
-        await db.collection('users').doc(currentUser.chatId).set({
-            name: currentUser.name,
-            login: currentUser.login,
-            isAdmin: currentUser.isAdmin,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        await initUserContacts();
+        await updateUserStatus(true);
         
-        // Создаём пустой список контактов, если его нет
-        const contactRef = db.collection('contacts').doc(currentUser.chatId);
-        const contactDoc = await contactRef.get();
-        if (!contactDoc.exists) {
-            await contactRef.set({
-                userId: currentUser.chatId,
-                contacts: [], // пустой массив
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        console.log('✅ Пользователь инициализирован в Firebase');
-        
-        // Добавляем начальные контакты (247 и Организатор) и ждём завершения
-        await ensureInitialContacts();
+        showPage('app');
+        await loadUserInterface();
         
     } catch (error) {
-        console.error('❌ Ошибка инициализации пользователя:', error);
-        throw error; // Пробрасываем ошибку дальше
+        console.error('Ошибка при входе:', error);
+        errorMessage.textContent = 'Ошибка подключения к серверу';
     }
 }
 
-// Добавление начальной связи между 247 и Организатором
-async function ensureInitialContacts() {
-    if (!currentUser) return;
-    
-    const initialPairs = [
-        ["247", "001"]  // Агент 247 и Организатор
-    ];
-    
-    for (let [loginA, loginB] of initialPairs) {
-        if (currentUser.login === loginA || currentUser.login === loginB) {
-            const accountA = CONFIG.validAccounts.find(acc => acc.login === loginA);
-            const accountB = CONFIG.validAccounts.find(acc => acc.login === loginB);
-            if (accountA && accountB) {
-                try {
-                    const contactRef = db.collection('contacts').doc(currentUser.chatId);
-                    const doc = await contactRef.get();
-                    if (doc.exists) {
-                        const contacts = doc.data().contacts || [];
-                        const otherId = (currentUser.login === loginA) ? accountB.chatId : accountA.chatId;
-                        if (!contacts.includes(otherId)) {
-                            // Добавляем двустороннюю связь
-                            await addContact(currentUser.chatId, otherId);
-                            await addContact(otherId, currentUser.chatId);
-                            console.log(`✅ Добавлена начальная связь между ${loginA} и ${loginB}`);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Ошибка при добавлении начальных контактов:', error);
-                    // Не пробрасываем, чтобы не блокировать вход, но логируем
-                }
-            }
-            break; // только одна пара
-        }
+// Инициализация контактов
+async function initUserContacts() {
+    if (!db || !currentUser) return;
+    const contactRef = db.collection('contacts').doc(currentUser.chatId);
+    const contactDoc = await contactRef.get();
+    if (!contactDoc.exists) {
+        await contactRef.set({
+            userId: currentUser.chatId,
+            contacts: [],
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
     }
 }
 
 // Обновление статуса онлайн
 async function updateUserStatus(isOnline) {
     if (!db || !currentUser) return;
-    
     try {
         await db.collection('users').doc(currentUser.chatId).set({
             isOnline: isOnline,
             lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        
-        console.log('✅ Статус обновлен в Firebase');
     } catch (error) {
         console.error('❌ Ошибка обновления статуса:', error);
     }
 }
 
-// Загрузка интерфейса пользователя
-function loadUserInterface() {
+// Загрузка интерфейса
+async function loadUserInterface() {
     if (!currentUser) {
         showPage('login-page');
         return;
@@ -251,30 +257,115 @@ function loadUserInterface() {
     document.getElementById('currentUserName').textContent = currentUser.name;
     document.getElementById('currentUserStatus').textContent = 'online';
     
+    await checkUserConsent();
+    
     loadContacts();
     initInterface();
 }
 
-// Загрузка контактов пользователя из Firebase
+// Модальное окно согласия
+function showConsentModal() {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20000;
+            padding: 20px;
+        `;
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: #000;
+            border: 2px solid #ff4444;
+            border-radius: 10px;
+            padding: 20px;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+        `;
+
+        const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
+
+Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
+
+1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
+1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
+1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
+
+2. ОТВЕТСТВЕННОСТЬ
+2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
+2.2. Администрация вправе требовать возмещения убытков.
+
+3. ВОЗРАСТ
+3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
+
+Нажимая «ПРИНИМАЮ», вы подтверждаете согласие с условиями.`;
+
+        const text = document.createElement('div');
+        text.style.cssText = `
+            white-space: pre-line;
+            line-height: 1.4;
+            font-size: 14px;
+            color: #ff4444;
+            margin-bottom: 20px;
+        `;
+        text.textContent = agreementText;
+
+        const acceptBtn = document.createElement('button');
+        acceptBtn.textContent = 'ПРИНИМАЮ';
+        acceptBtn.style.cssText = `
+            background: #ff4444;
+            color: #000;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            font-size: 16px;
+        `;
+        acceptBtn.onclick = function() {
+            document.body.removeChild(modal);
+            resolve(true);
+        };
+
+        content.appendChild(text);
+        content.appendChild(acceptBtn);
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+    });
+}
+
+async function checkUserConsent() {
+    const consentGiven = sessionStorage.getItem('wolf_consent_' + currentUser.chatId);
+    if (consentGiven === 'true') return true;
+    await showConsentModal();
+    sessionStorage.setItem('wolf_consent_' + currentUser.chatId, 'true');
+    return true;
+}
+
+// Загрузка контактов
 async function loadContacts() {
     const contactsList = document.getElementById('contactsList');
     if (!currentUser || !contactsList) return;
-    
     contactsList.innerHTML = '<div class="loading">Загрузка контактов...</div>';
-    
     try {
         const contactDoc = await db.collection('contacts').doc(currentUser.chatId).get();
-        if (!contactDoc.exists) {
+        if (!contactDoc.exists || !contactDoc.data().contacts.length) {
             contactsList.innerHTML = '<div class="loading">У вас пока нет контактов</div>';
             return;
         }
-        
-        const contactIds = contactDoc.data().contacts || [];
-        if (contactIds.length === 0) {
-            contactsList.innerHTML = '<div class="loading">У вас пока нет контактов</div>';
-            return;
-        }
-        
+        const contactIds = contactDoc.data().contacts;
         const contactsData = [];
         for (let id of contactIds) {
             const userDoc = await db.collection('users').doc(id).get();
@@ -286,11 +377,8 @@ async function loadContacts() {
                     name: userData.name,
                     isOnline: userData.isOnline || false
                 });
-            } else {
-                console.warn(`Пользователь с id ${id} не найден в коллекции users, но есть в контактах`);
             }
         }
-        
         displayContacts(contactsData);
     } catch (error) {
         console.error('Ошибка загрузки контактов:', error);
@@ -298,364 +386,323 @@ async function loadContacts() {
     }
 }
 
-// Отображение контактов
 function displayContacts(contacts) {
     const contactsList = document.getElementById('contactsList');
-    if (!contactsList) return;
-    
     contactsList.innerHTML = '';
-    
     contacts.forEach(contact => {
-        const contactElement = document.createElement('div');
-        contactElement.className = 'contact';
-        contactElement.dataset.userId = contact.login;
-        
-        const statusClass = contact.isOnline ? 'status-online' : 'status-offline';
-        const statusText = contact.isOnline ? 'online' : 'offline';
-        
-        contactElement.innerHTML = `
-            <div class="contact-avatar ${statusClass}">${contact.login}</div>
+        const el = document.createElement('div');
+        el.className = 'contact';
+        el.dataset.userId = contact.login;
+        el.innerHTML = `
+            <div class="contact-avatar ${contact.isOnline ? 'status-online' : 'status-offline'}">${contact.login}</div>
             <div class="contact-info">
                 <div class="contact-name">${contact.name}</div>
-                <div class="last-message">${statusText}</div>
+                <div class="last-message">${contact.isOnline ? 'online' : 'offline'}</div>
             </div>
         `;
-        
-        contactElement.addEventListener('click', () => openChat(contact));
-        contactsList.appendChild(contactElement);
+        el.addEventListener('click', () => openChat(contact));
+        contactsList.appendChild(el);
     });
 }
 
-// Открытие чата
 function openChat(contact) {
-    if (!currentUser) {
-        showPage('login-page');
-        return;
-    }
-    
+    if (!currentUser) return showPage('login-page');
     currentChat = contact;
     isChatOpen = true;
-    
     document.getElementById('partnerAvatar').textContent = contact.login;
     document.getElementById('partnerName').textContent = contact.name;
     document.getElementById('partnerStatus').textContent = contact.isOnline ? 'online' : 'offline';
     document.getElementById('messageInput').disabled = false;
     document.querySelector('.send-button').disabled = false;
-    
     loadChatHistory();
-    
-    if (window.innerWidth <= 768) {
-        showChatWindow();
-    }
-    
+    if (window.innerWidth <= 768) showChatWindow();
     document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
     document.querySelector(`[data-user-id="${contact.login}"]`)?.classList.add('active');
 }
 
-// Загрузка истории чата
 function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer || !currentUser || !currentChat) return;
-    
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
-    
-    if (unsubscribeMessages) {
-        unsubscribeMessages();
-        unsubscribeMessages = null;
-    }
-    
+    if (unsubscribeMessages) unsubscribeMessages();
     try {
-        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-        console.log('📥 Загружаем историю для чата:', chatKey);
-        
-        const q = db.collection("messages");
-        
+        const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
+        const q = db.collection("messages").where('chatKey', '==', chatKey);
         unsubscribeMessages = q.onSnapshot((snapshot) => {
-            const allMessages = [];
-            snapshot.forEach((doc) => {
-                if (doc.exists) {
-                    allMessages.push({ id: doc.id, ...doc.data() });
-                }
-            });
-            
-            const chatMessages = allMessages.filter(msg => msg.chatKey === chatKey);
-            chatMessages.sort((a, b) => {
-                const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
-                const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
-                return timeA - timeB;
-            });
-            
-            console.log('📨 Загружено сообщений для чата:', chatMessages.length);
-            
-            if (chatMessages.length === 0) {
-                showWelcomeMessage();
-            } else {
-                displayMessages(chatMessages);
-            }
+            const msgs = [];
+            snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+            msgs.sort((a,b) => (a.timestamp?.toDate()||0) - (b.timestamp?.toDate()||0));
+            if (msgs.length === 0) showWelcomeMessage();
+            else displayMessages(msgs, chatKey);
         }, (error) => {
-            console.error('❌ Ошибка загрузки:', error);
-            messagesContainer.innerHTML = `
-                <div class="welcome-message">
-                    <div class="welcome-text">Ошибка загрузки сообщений</div>
-                    <div class="welcome-subtext">${error.message}</div>
-                    <button onclick="loadChatHistory()" style="margin-top: 10px; padding: 8px 16px; background: #333; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                        Попробовать снова
-                    </button>
-                </div>
-            `;
+            console.error('Ошибка загрузки:', error);
+            if (error.code === 'failed-precondition' && error.message.includes('index')) {
+                messagesContainer.innerHTML = `
+                    <div class="welcome-message">
+                        <div class="welcome-text">Требуется создать индекс</div>
+                        <div class="welcome-subtext">Для работы чата нужно создать составной индекс в Firebase. Перейдите по <a href="https://console.firebase.google.com/project/${firebase.app().options.projectId}/database/firestore/indexes" target="_blank">ссылке</a> и создайте индекс для поля chatKey и timestamp.</div>
+                    </div>
+                `;
+            } else {
+                messagesContainer.innerHTML = `<div class="welcome-message">Ошибка загрузки: ${error.message}</div>`;
+            }
         });
-        
     } catch (error) {
-        console.error('❌ Ошибка настройки слушателя:', error);
-        messagesContainer.innerHTML = `
-            <div class="welcome-message">
-                <div class="welcome-text">Ошибка подключения</div>
-                <div class="welcome-subtext">${error.message}</div>
-            </div>
-        `;
+        console.error('Ошибка:', error);
+        messagesContainer.innerHTML = `<div class="welcome-message">Ошибка подключения</div>`;
     }
 }
 
-// Ключ чата
-function getChatKey(user1, user2) {
-    return [user1, user2].sort().join('_');
-}
-
-// Обработка команд
 function handleCommand(message) {
-    // Команда /soglasie
-    if (message === '/soglasie' || message === '/согласие' || message === '/соглашение') {
+    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
         showAgreement();
         return true;
     }
-    
-    // Команда /add логин1 логин2 (только для админов)
     if (message.startsWith('/add ')) {
-        if (currentUser && currentUser.isAdmin) {
-            handleAddCommand(message);
-        } else {
-            alert('Только администраторы могут добавлять контакты');
-        }
+        if (currentUser?.isAdmin) handleAddCommand(message);
+        else alert('Только администраторы могут добавлять контакты');
         return true;
     }
-    
     return false;
 }
 
-// Обработка команды /add логин1 логин2
 async function handleAddCommand(message) {
-    const parts = message.split(' ').filter(p => p.trim() !== '');
-    if (parts.length !== 3) {
-        alert('Использование: /add логин1 логин2');
-        return;
-    }
+    const parts = message.split(' ').filter(p => p);
+    if (parts.length !== 3) return alert('Использование: /add логин1 логин2');
+    const [_, login1, login2] = parts;
+    if (login1 === login2) return alert('Нельзя добавить себя к себе');
     
-    const login1 = parts[1];
-    const login2 = parts[2];
+    const user1Snap = await db.collection('users').where('login','==',login1).get();
+    const user2Snap = await db.collection('users').where('login','==',login2).get();
+    if (user1Snap.empty || user2Snap.empty) return alert('Один из логинов не существует');
     
-    if (login1 === login2) {
-        alert('Нельзя добавить пользователя самого к себе');
-        return;
-    }
-    
-    const account1 = CONFIG.validAccounts.find(acc => acc.login === login1);
-    const account2 = CONFIG.validAccounts.find(acc => acc.login === login2);
-    
-    if (!account1 || !account2) {
-        alert('Один из логинов не существует');
-        return;
-    }
+    const acc1 = user1Snap.docs[0].data();
+    const acc2 = user2Snap.docs[0].data();
     
     try {
-        // Добавляем двустороннюю связь
-        await addContact(account1.chatId, account2.chatId);
-        await addContact(account2.chatId, account1.chatId);
-        
-        if (currentUser.chatId === account1.chatId || currentUser.chatId === account2.chatId) {
-            loadContacts();
+        const added1 = await addContact(acc1.chatId, acc2.chatId);
+        const added2 = await addContact(acc2.chatId, acc1.chatId);
+        if (currentUser.chatId === acc1.chatId || currentUser.chatId === acc2.chatId) loadContacts();
+        if (added1 || added2) {
+            alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
+        } else {
+            alert('Эти контакты уже были добавлены');
         }
-        
-        alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
-    } catch (error) {
-        console.error('Ошибка добавления контактов:', error);
-        alert('Ошибка при добавлении контактов');
+    } catch (e) {
+        alert('Ошибка');
     }
 }
 
-// Вспомогательная функция для добавления одного контакта
+// FIX: возвращаем флаг, был ли добавлен контакт
 async function addContact(userId, contactId) {
-    const contactRef = db.collection('contacts').doc(userId);
-    await db.runTransaction(async (transaction) => {
-        const doc = await transaction.get(contactRef);
+    const ref = db.collection('contacts').doc(userId);
+    let added = false;
+    await db.runTransaction(async tx => {
+        const doc = await tx.get(ref);
         if (!doc.exists) {
-            transaction.set(contactRef, { 
-                userId: userId, 
-                contacts: [contactId],
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            tx.set(ref, { userId, contacts: [contactId], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            added = true;
         } else {
             const contacts = doc.data().contacts || [];
             if (!contacts.includes(contactId)) {
                 contacts.push(contactId);
-                transaction.update(contactRef, { 
-                    contacts: contacts,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                tx.update(ref, { contacts, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added = true;
             }
         }
     });
+    return added;
 }
 
-// Показать соглашение (текст сокращён для экономии места, в реальном коде он полный)
 function showAgreement() {
-    const agreementText = `СОГЛАШЕНИЕ ОБ ИСПОЛЬЗОВАНИИ СЕРВИСА WOLF MESSENGER\n\n... (полный текст соглашения) ...`;
-    // ... код модального окна (без изменений) ...
+    const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
+
+Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
+
+1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
+1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
+1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
+
+2. ОТВЕТСТВЕННОСТЬ
+2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
+2.2. Администрация вправе требовать возмещения убытков.
+
+3. ВОЗРАСТ
+3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
+
+Нажимая «ЗАКРЫТЬ», вы подтверждаете, что ознакомлены.`;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.95);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        padding: 20px;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #000;
+        border: 2px solid #ff4444;
+        border-radius: 10px;
+        padding: 20px;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+    `;
+
+    const text = document.createElement('div');
+    text.style.cssText = `
+        white-space: pre-line;
+        line-height: 1.4;
+        font-size: 14px;
+        color: #ff4444;
+        margin-bottom: 20px;
+    `;
+    text.textContent = agreementText;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'ЗАКРЫТЬ';
+    closeBtn.style.cssText = `
+        background: #ff4444;
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-weight: bold;
+    `;
+    closeBtn.onclick = () => document.body.removeChild(modal);
+
+    content.appendChild(text);
+    content.appendChild(closeBtn);
+    modal.appendChild(content);
+    document.body.appendChild(modal);
 }
 
-// Отправка сообщения
+// FIX: добавлена проверка длины сообщения
+const MAX_MESSAGE_LENGTH = 5000;
+
 async function sendMessage() {
-    if (!currentUser || !currentChat || !db) {
-        showPage('login-page');
-        return;
-    }
-    
-    const messageInput = document.getElementById('messageInput');
-    if (!messageInput) return;
-    
-    const text = messageInput.value.trim();
+    if (!currentUser || !currentChat || !db) return showPage('login-page');
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
     if (!text) return;
-
-    // Если это команда – обрабатываем и не отправляем в Firebase
-    if (handleCommand(text)) {
-        messageInput.value = '';
+    if (text.length > MAX_MESSAGE_LENGTH) {
+        alert(`Сообщение слишком длинное (максимум ${MAX_MESSAGE_LENGTH} символов)`);
         return;
     }
-
+    if (handleCommand(text)) { input.value = ''; return; }
+    
+    // FIX: получаем toUid из базы
+    let toUid = null;
+    try {
+        const userDoc = await db.collection('users').doc(currentChat.chatId).get();
+        if (userDoc.exists) {
+            toUid = userDoc.data().authUid;
+        } else {
+            console.error('Не найден документ получателя');
+            alert('Ошибка: не удалось определить получателя');
+            return;
+        }
+    } catch (error) {
+        console.error('Ошибка получения toUid:', error);
+        alert('Ошибка при отправке');
+        return;
+    }
+    
+    const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
+    const encrypted = encryptText(text, chatKey);
     const tempId = 'temp_' + Date.now();
     addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
-    messageInput.value = '';
-
+    input.value = '';
+    
     try {
-        const chatKey = getChatKey(currentUser.chatId, currentChat.chatId);
-        const timestamp = firebase.firestore.FieldValue.serverTimestamp();
-        
-        const docRef = await db.collection("messages").add({
+        await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
             to: currentChat.chatId,
             toName: currentChat.name,
-            text: text,
+            fromUid: currentUser.uid,
+            toUid: toUid,
+            encrypted: encrypted,
             chatKey: chatKey,
-            timestamp: timestamp
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
-        console.log('✅ Сообщение сохранено в Firebase с ID:', docRef.id);
-        
-        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
-        if (tempElement) {
-            tempElement.remove();
-        }
-        
+        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempEl) tempEl.remove();
     } catch (error) {
-        console.error('❌ Ошибка отправки:', error);
-        
-        const tempElement = document.querySelector(`[data-message-id="${tempId}"]`);
-        if (tempElement) {
-            tempElement.classList.add('error');
-            tempElement.querySelector('.message-text').textContent = '❌ Ошибка отправки: ' + text;
+        console.error('Ошибка отправки:', error);
+        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempEl) {
+            tempEl.classList.add('error');
+            tempEl.querySelector('.message-text').textContent = '❌ Ошибка: ' + text;
         }
     }
 }
 
-// Отображение сообщений
-function displayMessages(messages) {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
-    
-    messagesContainer.innerHTML = '';
-    
-    if (messages.length === 0) {
-        showWelcomeMessage();
-        return;
-    }
-    
+function displayMessages(messages, chatKey) {
+    const container = document.getElementById('messagesContainer');
+    container.innerHTML = '';
+    if (!messages.length) { showWelcomeMessage(); return; }
     messages.forEach(msg => {
-        const messageType = msg.from === currentUser.chatId ? 'sent' : 'received';
+        const type = msg.from === currentUser.chatId ? 'sent' : 'received';
         const time = msg.timestamp ? formatFirebaseTime(msg.timestamp) : getCurrentTime();
-        addMessageToUI(msg.text, messageType, time, msg.id, false);
+        const decrypted = decryptText(msg.encrypted, chatKey);
+        addMessageToUI(decrypted, type, time, msg.id, false);
     });
-    
     scrollToBottom();
 }
 
-// Добавление сообщения в UI
-function addMessageToUI(text, type, time, messageId, shouldScroll = true) {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
-    
-    const welcomeMsg = messagesContainer.querySelector('.welcome-message');
-    if (welcomeMsg) {
-        welcomeMsg.remove();
-    }
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${type}`;
-    messageDiv.dataset.messageId = messageId;
-    
-    messageDiv.innerHTML = `
-        <div class="message-content">
-            <div class="message-text">${text}</div>
-            <div class="message-time">${time}</div>
-        </div>
-    `;
-    
-    messagesContainer.appendChild(messageDiv);
-    
-    if (shouldScroll) {
-        scrollToBottom();
-    }
+function addMessageToUI(text, type, time, id, scroll = true) {
+    const container = document.getElementById('messagesContainer');
+    const welcome = container.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+    const div = document.createElement('div');
+    div.className = `message ${type}`;
+    div.dataset.messageId = id;
+    div.innerHTML = `<div class="message-content"><div class="message-text">${text}</div><div class="message-time">${time}</div></div>`;
+    container.appendChild(div);
+    if (scroll) scrollToBottom();
 }
 
-// Прокрутка вниз
 function scrollToBottom() {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (messagesContainer) {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
+    const c = document.getElementById('messagesContainer');
+    if (c) c.scrollTop = c.scrollHeight;
 }
 
-// Вспомогательные функции времени
 function getCurrentTime() {
-    const now = new Date();
-    return now.getHours().toString().padStart(2, '0') + ':' + 
-           now.getMinutes().toString().padStart(2, '0');
+    const d = new Date();
+    return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
 }
 
-function formatFirebaseTime(timestamp) {
-    if (timestamp && timestamp.toDate) {
-        const date = timestamp.toDate();
-        return date.getHours().toString().padStart(2, '0') + ':' + 
-               date.getMinutes().toString().padStart(2, '0');
+function formatFirebaseTime(ts) {
+    if (ts?.toDate) {
+        const d = ts.toDate();
+        return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
     }
     return getCurrentTime();
 }
 
 function showWelcomeMessage() {
-    const messagesContainer = document.getElementById('messagesContainer');
-    if (!messagesContainer) return;
-    
-    const chatName = currentChat ? currentChat.name : 'контактом';
-    messagesContainer.innerHTML = `
-        <div class="welcome-message">
-            <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
-            <div class="welcome-text">Начните общение с ${chatName}</div>
-            <div class="welcome-subtext">Сообщения сохраняются глобально в Firebase</div>
-        </div>
-    `;
+    const container = document.getElementById('messagesContainer');
+    if (!container) return;
+    const name = currentChat ? currentChat.name : 'контактом';
+    container.innerHTML = `<div class="welcome-message"><img src="wolf-logo.png" alt="Wolf" class="welcome-logo"><div class="welcome-text">Начните общение с ${name}</div><div class="welcome-subtext">Сообщения защищены шифрованием</div></div>`;
 }
 
 function showPage(pageId) {
-    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(pageId).classList.add('active');
     handleResize();
 }
@@ -679,70 +726,62 @@ function hideChatWindow() {
     document.querySelector('.chat-window').style.display = 'none';
 }
 
-// Проверка авторизации при загрузке
-function checkAuthOnLoad() {
-    try {
-        const savedUser = sessionStorage.getItem('wolf_current_user');
-        if (savedUser) {
-            currentUser = JSON.parse(savedUser);
-            const account = CONFIG.validAccounts.find(acc => acc.login === currentUser.login);
-            if (account) {
-                currentUser.isAdmin = CONFIG.adminLogins.includes(currentUser.login);
+function initInterface() {
+    const input = document.getElementById('messageInput');
+    if (input) {
+        input.addEventListener('keypress', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        });
+        input.addEventListener('focus', () => {
+            if (window.innerWidth <= 768 && currentChat) {
+                isChatOpen = true;
+                showChatWindow();
             }
-            // Убедимся, что записи в Firebase существуют и добавлены начальные контакты
-            initUserInFirebase()
-                .then(() => {
-                    showPage('app');
-                    loadUserInterface();
-                    updateUserStatus(true);
-                })
-                .catch((error) => {
-                    console.error('❌ Ошибка восстановления сессии:', error);
-                    sessionStorage.removeItem('wolf_current_user');
-                    currentUser = null;
-                    showPage('login-page');
-                    document.getElementById('error-message').textContent = 'Ошибка подключения к серверу.';
-                });
+        });
+    }
+    window.addEventListener('resize', handleResize);
+    handleResize();
+}
+
+function handleResize() {
+    if (window.innerWidth > 768) {
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.contacts-panel').style.width = '35%';
+        document.querySelector('.chat-window').style.display = 'flex';
+        document.querySelector('.chat-window').style.width = '65%';
+        document.querySelector('.header-back').style.display = 'none';
+    } else {
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.header-back').style.display = 'block';
+        const chat = document.querySelector('.chat-window');
+        if (isChatOpen && currentChat) {
+            chat.style.display = 'flex';
+            document.querySelector('.contacts-panel').style.display = 'none';
         } else {
-            showPage('login-page');
+            chat.style.display = 'none';
+            document.querySelector('.contacts-panel').style.display = 'flex';
         }
+    }
+}
+
+async function checkAuthOnLoad() {
+    try {
+        await ensurePredefinedUsers();
+        // Если уже есть аутентифицированный пользователь, onAuthStateChanged подхватит
     } catch (e) {
-        console.error('Ошибка восстановления сессии:', e);
-        sessionStorage.removeItem('wolf_current_user');
+        console.error('Ошибка загрузки:', e);
         showPage('login-page');
     }
 }
 
-// Выход
 async function logout() {
-    if (currentUser) {
-        await updateUserStatus(false);
-    }
-    
-    currentUser = null;
-    currentChat = null;
-    isChatOpen = false;
-    
-    if (unsubscribeMessages) {
-        unsubscribeMessages();
-        unsubscribeMessages = null;
-    }
-    
-    sessionStorage.removeItem('wolf_current_user');
-    showPage('login-page');
-    document.getElementById('login').value = '';
-    document.getElementById('password').value = '';
+    await forceLogout();
 }
 
-// Обработчик перезагрузки
-window.addEventListener('beforeunload', function() {
-    if (currentUser) {
-        updateUserStatus(false);
-    }
+window.addEventListener('beforeunload', () => {
+    if (currentUser) updateUserStatus(false);
 });
 
-// Инициализация
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM загружен, запуск приложения...');
+document.addEventListener('DOMContentLoaded', () => {
     window.initApp = initApp;
 });
