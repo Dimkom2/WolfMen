@@ -46,13 +46,12 @@ let unsubscribeMessages = null;
 let db = null;
 let auth = null;
 
-// Инициализация приложения
+// ========== УПРОЩЁННАЯ ИНИЦИАЛИЗАЦИЯ ==========
 function initApp() {
-    console.log('🚀 Инициализация Wolf Messenger...');
+    console.log('🚀 Инициализация Wolf Messenger (тест)...');
     
     if (typeof firebase === 'undefined') {
         console.error('❌ Firebase не загружен!');
-        showPage('login-page');
         return;
     }
     
@@ -74,38 +73,10 @@ function initApp() {
     
     initInterface();
     
-    // Создаём пользователей, если их нет
-    ensurePredefinedUsers().catch(console.error);
-    
-    // Слушаем изменения аутентификации
-    auth.onAuthStateChanged(async (user) => {
-        if (user) {
-            const saved = sessionStorage.getItem('wolf_current_user');
-            if (saved && !currentUser) {
-                currentUser = JSON.parse(saved);
-                showPage('app');
-                await loadUserInterface();
-                updateUserStatus(true);
-            } else if (!currentUser) {
-                const restored = await restoreUserSession(user);
-                if (!restored) {
-                    await auth.signOut();
-                }
-            }
-        } else {
-            if (currentUser) {
-                await forceLogout();
-            } else {
-                showPage('login-page');
-            }
-        }
-    });
-    
-    // Если нет текущего пользователя в Auth, показываем страницу входа
-    if (!auth.currentUser) {
-        showPage('login-page');
-    }
+    // Принудительно показываем страницу входа
+    showPage('login-page');
 }
+// ===============================================
 
 // Создание предустановленных пользователей в Firestore
 async function ensurePredefinedUsers() {
@@ -138,66 +109,6 @@ async function ensurePredefinedUsers() {
         });
         console.log(`✅ Создан пользователь ${user.login}`);
     }
-}
-
-// Восстановление сессии по данным Auth
-async function restoreUserSession(user) {
-    try {
-        const usersRef = db.collection('users');
-        let snapshot = await usersRef.where('authUid', '==', user.uid).get();
-        
-        if (snapshot.empty) {
-            const emailLogin = user.email ? user.email.split('@')[0] : null;
-            if (emailLogin) {
-                snapshot = await usersRef.where('login', '==', emailLogin).get();
-            }
-        }
-        
-        if (!snapshot.empty) {
-            const userDoc = snapshot.docs[0];
-            const userData = userDoc.data();
-            if (!userData.authUid) {
-                await userDoc.ref.update({ authUid: user.uid });
-            }
-            currentUser = {
-                login: userData.login,
-                name: userData.name,
-                chatId: userData.chatId,
-                isAdmin: userData.isAdmin || false,
-                uid: user.uid
-            };
-            sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
-            showPage('app');
-            await loadUserInterface();
-            updateUserStatus(true);
-            return true;
-        } else {
-            console.warn('Пользователь не найден в Firestore, выходим');
-            await auth.signOut();
-            showPage('login-page');
-            return false;
-        }
-    } catch (error) {
-        console.error('Ошибка восстановления сессии:', error);
-        await auth.signOut();
-        showPage('login-page');
-        return false;
-    }
-}
-
-// Принудительный выход
-async function forceLogout() {
-    if (currentUser) {
-        await updateUserStatus(false);
-    }
-    currentUser = null;
-    currentChat = null;
-    isChatOpen = false;
-    if (unsubscribeMessages) unsubscribeMessages();
-    sessionStorage.removeItem('wolf_current_user');
-    showPage('login-page');
-    document.getElementById('login').value = '';
-    document.getElementById('password').value = '';
 }
 
 // Функция входа
@@ -819,7 +730,17 @@ function handleResize() {
 }
 
 async function logout() {
-    await forceLogout();
+    if (currentUser) {
+        await updateUserStatus(false);
+    }
+    currentUser = null;
+    currentChat = null;
+    isChatOpen = false;
+    if (unsubscribeMessages) unsubscribeMessages();
+    sessionStorage.removeItem('wolf_current_user');
+    showPage('login-page');
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
 }
 
 window.addEventListener('beforeunload', () => {
