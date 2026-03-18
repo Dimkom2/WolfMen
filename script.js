@@ -1,23 +1,856 @@
-console.log('🚀 Минимальный тест');
+// ✨ Секретная соль для шифрования
+const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
 
-// Принудительно показываем страницу входа через 0.1 секунды
-setTimeout(() => {
-    const loginPage = document.getElementById('login-page');
-    const appPage = document.getElementById('app');
-    const loadingPage = document.getElementById('loading-page');
-    
-    if (loginPage) {
-        // Скрываем все страницы
-        if (loadingPage) loadingPage.classList.remove('active');
-        if (appPage) appPage.classList.remove('active');
-        
-        // Показываем страницу входа
-        loginPage.classList.add('active');
-        
-        // Проверяем, видна ли она
-        console.log('login-page classes:', loginPage.className);
-        console.log('login-page display:', window.getComputedStyle(loginPage).display);
-    } else {
-        console.error('❌ Элемент #login-page не найден!');
+// ✨ Функции шифрования/дешифрования
+function encryptText(text, key) {
+    const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
+    const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
+    const encrypted = CryptoJS.AES.encrypt(text, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+    return encrypted.toString();
+}
+
+function decryptText(encryptedText, key) {
+    try {
+        const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
+        const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
+        const decrypted = CryptoJS.AES.decrypt(encryptedText, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+        return decrypted.toString(CryptoJS.enc.Utf8);
+    } catch (e) {
+        console.error('Ошибка расшифровки:', e);
+        return '[Ошибка расшифровки]';
     }
-}, 100);
+}
+
+// ✨ Хеширование пароля с солью
+function hashPasswordWithSalt(password, salt) {
+    return CryptoJS.SHA256(password + salt).toString();
+}
+
+function generateSalt() {
+    return CryptoJS.lib.WordArray.random(16).toString();
+}
+
+// ✨ Генерация ключа шифрования для чата
+function generateChatKey(userId1, userId2) {
+    const sortedIds = [userId1, userId2].sort().join('_');
+    return CryptoJS.SHA256(sortedIds + ENCRYPTION_SALT).toString();
+}
+
+// Инициализация Telegram
+const tg = window.Telegram?.WebApp;
+
+let currentUser = null;
+let currentChat = null;
+let isChatOpen = false;
+let unsubscribeMessages = null;
+let db = null;
+let auth = null;
+
+// Диагностика: проверяем страницу входа после загрузки DOM
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        const loginPage = document.getElementById('login-page');
+        if (loginPage) {
+            console.log('🔍 Диагностика #login-page:');
+            console.log('  - Классы:', loginPage.className);
+            console.log('  - display:', window.getComputedStyle(loginPage).display);
+            console.log('  - Высота:', loginPage.offsetHeight, 'px');
+            console.log('  - Ширина:', loginPage.offsetWidth, 'px');
+            console.log('  - Дочерних элементов:', loginPage.children.length);
+            
+            const loginContainer = document.querySelector('.login-container');
+            if (loginContainer) {
+                console.log('  - .login-container видим?', window.getComputedStyle(loginContainer).display);
+                console.log('  - Высота .login-container:', loginContainer.offsetHeight, 'px');
+            } else {
+                console.log('  - .login-container не найден');
+            }
+        } else {
+            console.error('❌ #login-page не найден!');
+        }
+    }, 500);
+});
+
+// Инициализация приложения
+function initApp() {
+    console.log('🚀 Инициализация Wolf Messenger...');
+    
+    if (typeof firebase === 'undefined') {
+        console.error('❌ Firebase не загружен!');
+        showPage('login-page');
+        return;
+    }
+    
+    try {
+        db = firebase.firestore();
+        auth = firebase.auth();
+        db.enablePersistence()
+            .then(() => console.log('✅ Оффлайн поддержка включена'))
+            .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
+        console.log('✅ Firestore инициализирован');
+    } catch (error) {
+        console.error('❌ Ошибка инициализации Firestore:', error);
+    }
+    
+    if (tg) {
+        tg.expand();
+        tg.ready();
+    }
+    
+    initInterface();
+    
+    // Создаём пользователей, если их нет
+    ensurePredefinedUsers().catch(console.error);
+    
+    // Слушаем изменения аутентификации
+    auth.onAuthStateChanged(async (user) => {
+        if (user) {
+            const saved = sessionStorage.getItem('wolf_current_user');
+            if (saved && !currentUser) {
+                currentUser = JSON.parse(saved);
+                showPage('app');
+                await loadUserInterface();
+                updateUserStatus(true);
+            } else if (!currentUser) {
+                const restored = await restoreUserSession(user);
+                if (!restored) {
+                    await auth.signOut();
+                }
+            }
+        } else {
+            if (currentUser) {
+                await forceLogout();
+            } else {
+                showPage('login-page');
+            }
+        }
+    });
+    
+    // Если нет текущего пользователя в Auth, показываем страницу входа
+    if (!auth.currentUser) {
+        showPage('login-page');
+    }
+}
+
+// Создание предустановленных пользователей в Firestore
+async function ensurePredefinedUsers() {
+    const usersRef = db.collection('users');
+    const snapshot = await usersRef.get();
+    if (!snapshot.empty) {
+        console.log('👥 Пользователи уже существуют');
+        return;
+    }
+
+    const predefinedUsers = [
+        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
+        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
+        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749", isAdmin: false },
+        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456", isAdmin: false },
+        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947", isAdmin: false }
+    ];
+
+    for (const user of predefinedUsers) {
+        const salt = generateSalt();
+        const passwordHash = hashPasswordWithSalt(user.password, salt);
+        await usersRef.doc(user.chatId).set({
+            login: user.login,
+            name: user.name,
+            chatId: user.chatId,
+            isAdmin: user.isAdmin,
+            salt: salt,
+            passwordHash: passwordHash,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`✅ Создан пользователь ${user.login}`);
+    }
+}
+
+// Восстановление сессии по данным Auth
+async function restoreUserSession(user) {
+    try {
+        const usersRef = db.collection('users');
+        let snapshot = await usersRef.where('authUid', '==', user.uid).get();
+        
+        if (snapshot.empty) {
+            const emailLogin = user.email ? user.email.split('@')[0] : null;
+            if (emailLogin) {
+                snapshot = await usersRef.where('login', '==', emailLogin).get();
+            }
+        }
+        
+        if (!snapshot.empty) {
+            const userDoc = snapshot.docs[0];
+            const userData = userDoc.data();
+            if (!userData.authUid) {
+                await userDoc.ref.update({ authUid: user.uid });
+            }
+            currentUser = {
+                login: userData.login,
+                name: userData.name,
+                chatId: userData.chatId,
+                isAdmin: userData.isAdmin || false,
+                uid: user.uid
+            };
+            sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+            showPage('app');
+            await loadUserInterface();
+            updateUserStatus(true);
+            return true;
+        } else {
+            console.warn('Пользователь не найден в Firestore, выходим');
+            await auth.signOut();
+            showPage('login-page');
+            return false;
+        }
+    } catch (error) {
+        console.error('Ошибка восстановления сессии:', error);
+        await auth.signOut();
+        showPage('login-page');
+        return false;
+    }
+}
+
+// Принудительный выход
+async function forceLogout() {
+    if (currentUser) {
+        await updateUserStatus(false);
+    }
+    currentUser = null;
+    currentChat = null;
+    isChatOpen = false;
+    if (unsubscribeMessages) unsubscribeMessages();
+    sessionStorage.removeItem('wolf_current_user');
+    showPage('login-page');
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
+}
+
+// Функция входа
+async function checkPassword() {
+    const login = document.getElementById('login').value;
+    const password = document.getElementById('password').value;
+    const errorMessage = document.getElementById('error-message');
+
+    try {
+        const usersRef = db.collection('users');
+        const snapshot = await usersRef.where('login', '==', login).get();
+        
+        if (snapshot.empty) {
+            errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
+            document.getElementById('password').value = '';
+            return;
+        }
+        
+        const userDoc = snapshot.docs[0];
+        const userData = userDoc.data();
+        const hash = hashPasswordWithSalt(password, userData.salt || '');
+        
+        if (userData.passwordHash !== hash) {
+            errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
+            document.getElementById('password').value = '';
+            return;
+        }
+
+        const email = login + '@wolf.com';
+        
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
+            console.log('✅ Вход через Auth выполнен');
+        } catch (authError) {
+            if (authError.code === 'auth/user-not-found') {
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                console.log('✅ Создан пользователь в Auth:', userCredential.user.uid);
+                await userDoc.ref.update({
+                    authUid: userCredential.user.uid,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                throw authError;
+            }
+        }
+        
+        const authUser = auth.currentUser;
+        if (!authUser) throw new Error('Не удалось получить auth пользователя');
+        
+        if (!userData.authUid) {
+            await userDoc.ref.update({ authUid: authUser.uid });
+        } else if (userData.authUid !== authUser.uid) {
+            await userDoc.ref.update({ authUid: authUser.uid });
+        }
+        
+        currentUser = {
+            login: userData.login,
+            name: userData.name,
+            chatId: userData.chatId,
+            isAdmin: userData.isAdmin || false,
+            uid: authUser.uid
+        };
+        
+        sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        
+        await initUserContacts();
+        await updateUserStatus(true);
+        
+        showPage('app');
+        await loadUserInterface();
+        
+    } catch (error) {
+        console.error('Ошибка при входе:', error);
+        errorMessage.textContent = 'Ошибка подключения к серверу';
+    }
+}
+
+// Инициализация контактов
+async function initUserContacts() {
+    if (!db || !currentUser) return;
+    const contactRef = db.collection('contacts').doc(currentUser.chatId);
+    const contactDoc = await contactRef.get();
+    if (!contactDoc.exists) {
+        await contactRef.set({
+            userId: currentUser.chatId,
+            contacts: [],
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+}
+
+// Обновление статуса онлайн
+async function updateUserStatus(isOnline) {
+    if (!db || !currentUser) return;
+    try {
+        await db.collection('users').doc(currentUser.chatId).set({
+            isOnline: isOnline,
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    } catch (error) {
+        console.error('❌ Ошибка обновления статуса:', error);
+    }
+}
+
+// Загрузка интерфейса
+async function loadUserInterface() {
+    if (!currentUser) {
+        showPage('login-page');
+        return;
+    }
+    
+    document.getElementById('currentUserAvatar').textContent = currentUser.login;
+    document.getElementById('currentUserName').textContent = currentUser.name;
+    document.getElementById('currentUserStatus').textContent = 'online';
+    
+    await checkUserConsent();
+    
+    loadContacts();
+    initInterface();
+}
+
+// Модальное окно согласия
+function showConsentModal() {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20000;
+            padding: 20px;
+        `;
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: #000;
+            border: 2px solid #ff4444;
+            border-radius: 10px;
+            padding: 20px;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+        `;
+
+        const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
+
+Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
+
+1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
+1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
+1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
+
+2. ОТВЕТСТВЕННОСТЬ
+2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
+2.2. Администрация вправе требовать возмещения убытков.
+
+3. ВОЗРАСТ
+3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
+
+Нажимая «ПРИНИМАЮ», вы подтверждаете согласие с условиями.`;
+
+        const text = document.createElement('div');
+        text.style.cssText = `
+            white-space: pre-line;
+            line-height: 1.4;
+            font-size: 14px;
+            color: #ff4444;
+            margin-bottom: 20px;
+        `;
+        text.textContent = agreementText;
+
+        const acceptBtn = document.createElement('button');
+        acceptBtn.textContent = 'ПРИНИМАЮ';
+        acceptBtn.style.cssText = `
+            background: #ff4444;
+            color: #000;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            font-size: 16px;
+        `;
+        acceptBtn.onclick = function() {
+            document.body.removeChild(modal);
+            resolve(true);
+        };
+
+        content.appendChild(text);
+        content.appendChild(acceptBtn);
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+    });
+}
+
+async function checkUserConsent() {
+    const consentGiven = sessionStorage.getItem('wolf_consent_' + currentUser.chatId);
+    if (consentGiven === 'true') return true;
+    await showConsentModal();
+    sessionStorage.setItem('wolf_consent_' + currentUser.chatId, 'true');
+    return true;
+}
+
+// Загрузка контактов
+async function loadContacts() {
+    const contactsList = document.getElementById('contactsList');
+    if (!currentUser || !contactsList) return;
+    contactsList.innerHTML = '<div class="loading">Загрузка контактов...</div>';
+    try {
+        const contactDoc = await db.collection('contacts').doc(currentUser.chatId).get();
+        if (!contactDoc.exists || !contactDoc.data().contacts.length) {
+            contactsList.innerHTML = '<div class="loading">У вас пока нет контактов</div>';
+            return;
+        }
+        const contactIds = contactDoc.data().contacts;
+        const contactsData = [];
+        for (let id of contactIds) {
+            const userDoc = await db.collection('users').doc(id).get();
+            if (userDoc.exists) {
+                const userData = userDoc.data();
+                contactsData.push({
+                    chatId: id,
+                    login: userData.login,
+                    name: userData.name,
+                    isOnline: userData.isOnline || false
+                });
+            }
+        }
+        displayContacts(contactsData);
+    } catch (error) {
+        console.error('Ошибка загрузки контактов:', error);
+        contactsList.innerHTML = '<div class="loading">Ошибка загрузки контактов</div>';
+    }
+}
+
+function displayContacts(contacts) {
+    const contactsList = document.getElementById('contactsList');
+    contactsList.innerHTML = '';
+    contacts.forEach(contact => {
+        const el = document.createElement('div');
+        el.className = 'contact';
+        el.dataset.userId = contact.login;
+        el.innerHTML = `
+            <div class="contact-avatar ${contact.isOnline ? 'status-online' : 'status-offline'}">${contact.login}</div>
+            <div class="contact-info">
+                <div class="contact-name">${contact.name}</div>
+                <div class="last-message">${contact.isOnline ? 'online' : 'offline'}</div>
+            </div>
+        `;
+        el.addEventListener('click', () => openChat(contact));
+        contactsList.appendChild(el);
+    });
+}
+
+function openChat(contact) {
+    if (!currentUser) return showPage('login-page');
+    currentChat = contact;
+    isChatOpen = true;
+    document.getElementById('partnerAvatar').textContent = contact.login;
+    document.getElementById('partnerName').textContent = contact.name;
+    document.getElementById('partnerStatus').textContent = contact.isOnline ? 'online' : 'offline';
+    document.getElementById('messageInput').disabled = false;
+    document.querySelector('.send-button').disabled = false;
+    loadChatHistory();
+    if (window.innerWidth <= 768) showChatWindow();
+    document.querySelectorAll('.contact').forEach(c => c.classList.remove('active'));
+    document.querySelector(`[data-user-id="${contact.login}"]`)?.classList.add('active');
+}
+
+function loadChatHistory() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer || !currentUser || !currentChat) return;
+    messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+    if (unsubscribeMessages) unsubscribeMessages();
+    try {
+        const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
+        const q = db.collection("messages").where('chatKey', '==', chatKey);
+        unsubscribeMessages = q.onSnapshot((snapshot) => {
+            const msgs = [];
+            snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+            msgs.sort((a,b) => (a.timestamp?.toDate()||0) - (b.timestamp?.toDate()||0));
+            if (msgs.length === 0) showWelcomeMessage();
+            else displayMessages(msgs, chatKey);
+        }, (error) => {
+            console.error('Ошибка загрузки:', error);
+            if (error.code === 'failed-precondition' && error.message.includes('index')) {
+                messagesContainer.innerHTML = `
+                    <div class="welcome-message">
+                        <div class="welcome-text">Требуется создать индекс</div>
+                        <div class="welcome-subtext">Для работы чата нужно создать составной индекс в Firebase. Перейдите по <a href="https://console.firebase.google.com/project/${firebase.app().options.projectId}/database/firestore/indexes" target="_blank">ссылке</a> и создайте индекс для поля chatKey и timestamp.</div>
+                    </div>
+                `;
+            } else {
+                messagesContainer.innerHTML = `<div class="welcome-message">Ошибка загрузки: ${error.message}</div>`;
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка:', error);
+        messagesContainer.innerHTML = `<div class="welcome-message">Ошибка подключения</div>`;
+    }
+}
+
+function handleCommand(message) {
+    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
+        showAgreement();
+        return true;
+    }
+    if (message.startsWith('/add ')) {
+        if (currentUser?.isAdmin) handleAddCommand(message);
+        else alert('Только администраторы могут добавлять контакты');
+        return true;
+    }
+    return false;
+}
+
+async function handleAddCommand(message) {
+    const parts = message.split(' ').filter(p => p);
+    if (parts.length !== 3) return alert('Использование: /add логин1 логин2');
+    const [_, login1, login2] = parts;
+    if (login1 === login2) return alert('Нельзя добавить себя к себе');
+    
+    const user1Snap = await db.collection('users').where('login','==',login1).get();
+    const user2Snap = await db.collection('users').where('login','==',login2).get();
+    if (user1Snap.empty || user2Snap.empty) return alert('Один из логинов не существует');
+    
+    const acc1 = user1Snap.docs[0].data();
+    const acc2 = user2Snap.docs[0].data();
+    
+    try {
+        const added1 = await addContact(acc1.chatId, acc2.chatId);
+        const added2 = await addContact(acc2.chatId, acc1.chatId);
+        if (currentUser.chatId === acc1.chatId || currentUser.chatId === acc2.chatId) loadContacts();
+        if (added1 || added2) {
+            alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
+        } else {
+            alert('Эти контакты уже были добавлены');
+        }
+    } catch (e) {
+        alert('Ошибка');
+    }
+}
+
+async function addContact(userId, contactId) {
+    const ref = db.collection('contacts').doc(userId);
+    let added = false;
+    await db.runTransaction(async tx => {
+        const doc = await tx.get(ref);
+        if (!doc.exists) {
+            tx.set(ref, { userId, contacts: [contactId], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            added = true;
+        } else {
+            const contacts = doc.data().contacts || [];
+            if (!contacts.includes(contactId)) {
+                contacts.push(contactId);
+                tx.update(ref, { contacts, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added = true;
+            }
+        }
+    });
+    return added;
+}
+
+function showAgreement() {
+    const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
+
+Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
+
+1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
+1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
+1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
+
+2. ОТВЕТСТВЕННОСТЬ
+2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
+2.2. Администрация вправе требовать возмещения убытков.
+
+3. ВОЗРАСТ
+3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
+
+Нажимая «ЗАКРЫТЬ», вы подтверждаете, что ознакомлены.`;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.95);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        padding: 20px;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #000;
+        border: 2px solid #ff4444;
+        border-radius: 10px;
+        padding: 20px;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+    `;
+
+    const text = document.createElement('div');
+    text.style.cssText = `
+        white-space: pre-line;
+        line-height: 1.4;
+        font-size: 14px;
+        color: #ff4444;
+        margin-bottom: 20px;
+    `;
+    text.textContent = agreementText;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'ЗАКРЫТЬ';
+    closeBtn.style.cssText = `
+        background: #ff4444;
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-weight: bold;
+    `;
+    closeBtn.onclick = () => document.body.removeChild(modal);
+
+    content.appendChild(text);
+    content.appendChild(closeBtn);
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+}
+
+const MAX_MESSAGE_LENGTH = 5000;
+
+async function sendMessage() {
+    if (!currentUser || !currentChat || !db) return showPage('login-page');
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text) return;
+    if (text.length > MAX_MESSAGE_LENGTH) {
+        alert(`Сообщение слишком длинное (максимум ${MAX_MESSAGE_LENGTH} символов)`);
+        return;
+    }
+    if (handleCommand(text)) { input.value = ''; return; }
+    
+    let toUid = null;
+    try {
+        const userDoc = await db.collection('users').doc(currentChat.chatId).get();
+        if (userDoc.exists) {
+            toUid = userDoc.data().authUid;
+        } else {
+            console.error('Не найден документ получателя');
+            alert('Ошибка: не удалось определить получателя');
+            return;
+        }
+    } catch (error) {
+        console.error('Ошибка получения toUid:', error);
+        alert('Ошибка при отправке');
+        return;
+    }
+    
+    const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
+    const encrypted = encryptText(text, chatKey);
+    const tempId = 'temp_' + Date.now();
+    addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
+    input.value = '';
+    
+    try {
+        await db.collection("messages").add({
+            from: currentUser.chatId,
+            fromName: currentUser.name,
+            to: currentChat.chatId,
+            toName: currentChat.name,
+            fromUid: currentUser.uid,
+            toUid: toUid,
+            encrypted: encrypted,
+            chatKey: chatKey,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempEl) tempEl.remove();
+    } catch (error) {
+        console.error('Ошибка отправки:', error);
+        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+        if (tempEl) {
+            tempEl.classList.add('error');
+            tempEl.querySelector('.message-text').textContent = '❌ Ошибка: ' + text;
+        }
+    }
+}
+
+function displayMessages(messages, chatKey) {
+    const container = document.getElementById('messagesContainer');
+    container.innerHTML = '';
+    if (!messages.length) { showWelcomeMessage(); return; }
+    messages.forEach(msg => {
+        const type = msg.from === currentUser.chatId ? 'sent' : 'received';
+        const time = msg.timestamp ? formatFirebaseTime(msg.timestamp) : getCurrentTime();
+        const decrypted = decryptText(msg.encrypted, chatKey);
+        addMessageToUI(decrypted, type, time, msg.id, false);
+    });
+    scrollToBottom();
+}
+
+function addMessageToUI(text, type, time, id, scroll = true) {
+    const container = document.getElementById('messagesContainer');
+    const welcome = container.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+    const div = document.createElement('div');
+    div.className = `message ${type}`;
+    div.dataset.messageId = id;
+    div.innerHTML = `<div class="message-content"><div class="message-text">${text}</div><div class="message-time">${time}</div></div>`;
+    container.appendChild(div);
+    if (scroll) scrollToBottom();
+}
+
+function scrollToBottom() {
+    const c = document.getElementById('messagesContainer');
+    if (c) c.scrollTop = c.scrollHeight;
+}
+
+function getCurrentTime() {
+    const d = new Date();
+    return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+
+function formatFirebaseTime(ts) {
+    if (ts?.toDate) {
+        const d = ts.toDate();
+        return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+    }
+    return getCurrentTime();
+}
+
+function showWelcomeMessage() {
+    const container = document.getElementById('messagesContainer');
+    if (!container) return;
+    const name = currentChat ? currentChat.name : 'контактом';
+    container.innerHTML = `<div class="welcome-message"><img src="wolf-logo.png" alt="Wolf" class="welcome-logo"><div class="welcome-text">Начните общение с ${name}</div><div class="welcome-subtext">Сообщения защищены шифрованием</div></div>`;
+}
+
+function showPage(pageId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
+    handleResize();
+}
+
+function goBack() {
+    if (window.innerWidth <= 768) {
+        isChatOpen = false;
+        hideChatWindow();
+    }
+}
+
+function showChatWindow() {
+    isChatOpen = true;
+    document.querySelector('.contacts-panel').style.display = 'none';
+    document.querySelector('.chat-window').style.display = 'flex';
+}
+
+function hideChatWindow() {
+    isChatOpen = false;
+    document.querySelector('.contacts-panel').style.display = 'flex';
+    document.querySelector('.chat-window').style.display = 'none';
+}
+
+function initInterface() {
+    const input = document.getElementById('messageInput');
+    if (input) {
+        input.addEventListener('keypress', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        });
+        input.addEventListener('focus', () => {
+            if (window.innerWidth <= 768 && currentChat) {
+                isChatOpen = true;
+                showChatWindow();
+            }
+        });
+    }
+    window.addEventListener('resize', handleResize);
+    handleResize();
+}
+
+function handleResize() {
+    if (window.innerWidth > 768) {
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.contacts-panel').style.width = '35%';
+        document.querySelector('.chat-window').style.display = 'flex';
+        document.querySelector('.chat-window').style.width = '65%';
+        document.querySelector('.header-back').style.display = 'none';
+    } else {
+        document.querySelector('.contacts-panel').style.display = 'flex';
+        document.querySelector('.header-back').style.display = 'block';
+        const chat = document.querySelector('.chat-window');
+        if (isChatOpen && currentChat) {
+            chat.style.display = 'flex';
+            document.querySelector('.contacts-panel').style.display = 'none';
+        } else {
+            chat.style.display = 'none';
+            document.querySelector('.contacts-panel').style.display = 'flex';
+        }
+    }
+}
+
+async function logout() {
+    await forceLogout();
+}
+
+window.addEventListener('beforeunload', () => {
+    if (currentUser) updateUserStatus(false);
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.initApp = initApp;
+});
