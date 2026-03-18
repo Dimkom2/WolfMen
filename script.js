@@ -59,7 +59,6 @@ function initApp() {
     try {
         db = firebase.firestore();
         auth = firebase.auth();
-        // Включаем оффлайн persistence, но игнорируем ошибки (они не критичны)
         db.enablePersistence()
             .then(() => console.log('✅ Оффлайн поддержка включена'))
             .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
@@ -74,6 +73,9 @@ function initApp() {
     }
     
     initInterface();
+    
+    // Создаём пользователей, если их нет (только при открытой странице входа)
+    ensurePredefinedUsers().catch(console.error);
     
     // Слушаем изменения аутентификации
     auth.onAuthStateChanged(async (user) => {
@@ -90,12 +92,10 @@ function initApp() {
                 await restoreUserSession(user);
             }
         } else {
-            // Пользователь вышел
+            // Пользователь вышел – показываем страницу входа
+            showPage('login-page');
             if (currentUser) {
                 await forceLogout();
-            } else {
-                // Просто показываем страницу входа
-                showPage('login-page');
             }
         }
     });
@@ -104,10 +104,42 @@ function initApp() {
     showPage('login-page');
 }
 
+// Создание предустановленных пользователей в Firestore
+async function ensurePredefinedUsers() {
+    const usersRef = db.collection('users');
+    const snapshot = await usersRef.get();
+    if (!snapshot.empty) {
+        console.log('👥 Пользователи уже существуют');
+        return; // уже есть пользователи
+    }
+
+    const predefinedUsers = [
+        { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
+        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
+        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749", isAdmin: false },
+        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456", isAdmin: false },
+        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947", isAdmin: false }
+    ];
+
+    for (const user of predefinedUsers) {
+        const salt = generateSalt();
+        const passwordHash = hashPasswordWithSalt(user.password, salt);
+        await usersRef.doc(user.chatId).set({
+            login: user.login,
+            name: user.name,
+            chatId: user.chatId,
+            isAdmin: user.isAdmin,
+            salt: salt,
+            passwordHash: passwordHash,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`✅ Создан пользователь ${user.login}`);
+    }
+}
+
 // Восстановление сессии по данным Auth
 async function restoreUserSession(user) {
     try {
-        // Ищем пользователя в Firestore по authUid
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('authUid', '==', user.uid).get();
         if (!snapshot.empty) {
@@ -125,7 +157,6 @@ async function restoreUserSession(user) {
             await loadUserInterface();
             updateUserStatus(true);
         } else {
-            // Если пользователь не найден в Firestore – разлогиниваем
             await auth.signOut();
         }
     } catch (error) {
@@ -156,7 +187,6 @@ async function checkPassword() {
     const errorMessage = document.getElementById('error-message');
 
     try {
-        // Ищем пользователя в Firestore по логину
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('login', '==', login).get();
         
@@ -609,7 +639,6 @@ async function sendMessage() {
     }
     if (handleCommand(text)) { input.value = ''; return; }
     
-    // Получаем toUid из базы
     let toUid = null;
     try {
         const userDoc = await db.collection('users').doc(currentChat.chatId).get();
