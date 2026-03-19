@@ -1,7 +1,5 @@
-// ✨ Секретная соль для шифрования
 const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
 
-// ✨ Функции шифрования/дешифрования
 function encryptText(text, key) {
     const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
     const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
@@ -21,7 +19,6 @@ function decryptText(encryptedText, key) {
     }
 }
 
-// ✨ Хеширование пароля с солью
 function hashPasswordWithSalt(password, salt) {
     return CryptoJS.SHA256(password + salt).toString();
 }
@@ -30,13 +27,11 @@ function generateSalt() {
     return CryptoJS.lib.WordArray.random(16).toString();
 }
 
-// ✨ Генерация ключа шифрования для чата
 function generateChatKey(userId1, userId2) {
     const sortedIds = [userId1, userId2].sort().join('_');
     return CryptoJS.SHA256(sortedIds + ENCRYPTION_SALT).toString();
 }
 
-// Инициализация Telegram
 const tg = window.Telegram?.WebApp;
 
 let currentUser = null;
@@ -46,32 +41,6 @@ let unsubscribeMessages = null;
 let db = null;
 let auth = null;
 
-// Диагностика: проверяем страницу входа после загрузки DOM
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        const loginPage = document.getElementById('login-page');
-        if (loginPage) {
-            console.log('🔍 Диагностика #login-page:');
-            console.log('  - Классы:', loginPage.className);
-            console.log('  - display:', window.getComputedStyle(loginPage).display);
-            console.log('  - Высота:', loginPage.offsetHeight, 'px');
-            console.log('  - Ширина:', loginPage.offsetWidth, 'px');
-            console.log('  - Дочерних элементов:', loginPage.children.length);
-            
-            const loginContainer = document.querySelector('.login-container');
-            if (loginContainer) {
-                console.log('  - .login-container видим?', window.getComputedStyle(loginContainer).display);
-                console.log('  - Высота .login-container:', loginContainer.offsetHeight, 'px');
-            } else {
-                console.log('  - .login-container не найден');
-            }
-        } else {
-            console.error('❌ #login-page не найден!');
-        }
-    }, 500);
-});
-
-// Инициализация приложения
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
     
@@ -99,10 +68,8 @@ function initApp() {
     
     initInterface();
     
-    // Создаём пользователей, если их нет
     ensurePredefinedUsers().catch(console.error);
     
-    // Слушаем изменения аутентификации
     auth.onAuthStateChanged(async (user) => {
         if (user) {
             const saved = sessionStorage.getItem('wolf_current_user');
@@ -126,13 +93,11 @@ function initApp() {
         }
     });
     
-    // Если нет текущего пользователя в Auth, показываем страницу входа
     if (!auth.currentUser) {
         showPage('login-page');
     }
 }
 
-// Создание предустановленных пользователей в Firestore
 async function ensurePredefinedUsers() {
     const usersRef = db.collection('users');
     const snapshot = await usersRef.get();
@@ -165,7 +130,6 @@ async function ensurePredefinedUsers() {
     }
 }
 
-// Восстановление сессии по данным Auth
 async function restoreUserSession(user) {
     try {
         const usersRef = db.collection('users');
@@ -210,7 +174,6 @@ async function restoreUserSession(user) {
     }
 }
 
-// Принудительный выход
 async function forceLogout() {
     if (currentUser) {
         await updateUserStatus(false);
@@ -225,13 +188,23 @@ async function forceLogout() {
     document.getElementById('password').value = '';
 }
 
-// Функция входа
 async function checkPassword() {
-    const login = document.getElementById('login').value;
+    const login = document.getElementById('login').value.trim();
     const password = document.getElementById('password').value;
     const errorMessage = document.getElementById('error-message');
 
+    if (!login || !password) {
+        errorMessage.textContent = 'Введите логин и пароль';
+        return;
+    }
+
     try {
+        // Проверяем, включён ли провайдер Email/Password
+        if (!auth) {
+            errorMessage.textContent = 'Ошибка аутентификации';
+            return;
+        }
+
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('login', '==', login).get();
         
@@ -253,28 +226,28 @@ async function checkPassword() {
 
         const email = login + '@wolf.com';
         
+        let authUser;
         try {
-            await auth.signInWithEmailAndPassword(email, password);
-            console.log('✅ Вход через Auth выполнен');
+            // Пытаемся войти
+            const userCredential = await auth.signInWithEmailAndPassword(email, password);
+            authUser = userCredential.user;
         } catch (authError) {
             if (authError.code === 'auth/user-not-found') {
+                // Пользователя нет в Auth – создаём
                 const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                console.log('✅ Создан пользователь в Auth:', userCredential.user.uid);
-                await userDoc.ref.update({
-                    authUid: userCredential.user.uid,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                authUser = userCredential.user;
+            } else if (authError.code === 'auth/operation-not-allowed') {
+                errorMessage.textContent = 'Ошибка: вход через Email/Password не включён в Firebase';
+                return;
             } else {
-                throw authError;
+                // Другая ошибка (например, неправильный пароль, если пользователь уже есть)
+                errorMessage.textContent = 'Ошибка входа: ' + authError.message;
+                return;
             }
         }
         
-        const authUser = auth.currentUser;
-        if (!authUser) throw new Error('Не удалось получить auth пользователя');
-        
-        if (!userData.authUid) {
-            await userDoc.ref.update({ authUid: authUser.uid });
-        } else if (userData.authUid !== authUser.uid) {
+        // Обновляем authUid в документе пользователя, если его нет или он изменился
+        if (!userData.authUid || userData.authUid !== authUser.uid) {
             await userDoc.ref.update({ authUid: authUser.uid });
         }
         
@@ -300,7 +273,6 @@ async function checkPassword() {
     }
 }
 
-// Инициализация контактов
 async function initUserContacts() {
     if (!db || !currentUser) return;
     const contactRef = db.collection('contacts').doc(currentUser.chatId);
@@ -314,7 +286,6 @@ async function initUserContacts() {
     }
 }
 
-// Обновление статуса онлайн
 async function updateUserStatus(isOnline) {
     if (!db || !currentUser) return;
     try {
@@ -328,7 +299,6 @@ async function updateUserStatus(isOnline) {
     }
 }
 
-// Загрузка интерфейса
 async function loadUserInterface() {
     if (!currentUser) {
         showPage('login-page');
@@ -345,7 +315,6 @@ async function loadUserInterface() {
     initInterface();
 }
 
-// Модальное окно согласия
 function showConsentModal() {
     return new Promise((resolve) => {
         const modal = document.createElement('div');
@@ -436,7 +405,6 @@ async function checkUserConsent() {
     return true;
 }
 
-// Загрузка контактов
 async function loadContacts() {
     const contactsList = document.getElementById('contactsList');
     if (!currentUser || !contactsList) return;
