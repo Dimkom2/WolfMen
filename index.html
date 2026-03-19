@@ -13,12 +13,12 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     
-    <!-- CryptoJS для шифрования и хеширования -->
+    <!-- CryptoJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 </head>
 <body>
-    <!-- Экран загрузки -->
-    <div id="loading-page" class="page active">
+    <!-- Экран загрузки (не активен по умолчанию) -->
+    <div id="loading-page" class="page">
         <div class="loading-container">
             <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
             <div class="loading-text">Wolf Messenger</div>
@@ -30,8 +30,8 @@
         </div>
     </div>
 
-    <!-- Страница входа -->
-    <div id="login-page" class="page">
+    <!-- Страница входа (активна сразу для теста) -->
+    <div id="login-page" class="page active">
         <div class="login-container">
             <img src="wolf-logo.png" alt="Wolf Logo" class="login-logo">
             <div class="input-group">
@@ -119,41 +119,29 @@
             appId: "1:454406992399:web:866c45d70ea30236a7297a"
         };
 
-        // Функция обновления прогресса
         function updateLoadingProgress(progress, status) {
             const loadingBar = document.getElementById('loadingBar');
             const loadingStatus = document.getElementById('loadingStatus');
-            
-            if (loadingBar) {
-                loadingBar.style.width = progress + '%';
-            }
-            if (loadingStatus) {
-                loadingStatus.textContent = status;
-            }
+            if (loadingBar) loadingBar.style.width = progress + '%';
+            if (loadingStatus) loadingStatus.textContent = status;
         }
 
-        // Инициализируем Firebase с прогрессом
         updateLoadingProgress(10, 'Инициализация Firebase...');
         
-        // Ждем загрузки Firebase
         if (typeof firebase === 'undefined') {
             console.error('Firebase не загружен');
             updateLoadingProgress(100, 'Ошибка загрузки Firebase');
         } else {
             try {
-                // Инициализируем Firebase
                 firebase.initializeApp(firebaseConfig);
                 updateLoadingProgress(40, 'Firebase подключен');
-                
                 console.log('✅ Firebase инициализирован');
-                
             } catch (error) {
                 console.error('❌ Ошибка инициализации Firebase:', error);
                 updateLoadingProgress(100, 'Ошибка подключения');
             }
         }
 
-        // Загружаем основной скрипт
         setTimeout(() => {
             updateLoadingProgress(70, 'Загрузка приложения...');
             const script = document.createElement('script');
@@ -161,9 +149,7 @@
             script.onload = function() {
                 updateLoadingProgress(100, 'Готово!');
                 setTimeout(() => {
-                    if (window.initApp) {
-                        window.initApp();
-                    }
+                    if (window.initApp) window.initApp();
                 }, 500);
             };
             script.onerror = function() {
