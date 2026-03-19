@@ -68,6 +68,7 @@ function initApp() {
     
     initInterface();
     
+    // Проверяем, есть ли пользователи в Firestore, если нет – создаём
     ensurePredefinedUsers().catch(console.error);
     
     auth.onAuthStateChanged(async (user) => {
@@ -102,10 +103,11 @@ async function ensurePredefinedUsers() {
     const usersRef = db.collection('users');
     const snapshot = await usersRef.get();
     if (!snapshot.empty) {
-        console.log('👥 Пользователи уже существуют');
+        console.log('👥 Пользователи уже существуют в Firestore');
         return;
     }
 
+    console.log('🆕 Создаём предустановленных пользователей в Firestore...');
     const predefinedUsers = [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
         { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
@@ -126,7 +128,7 @@ async function ensurePredefinedUsers() {
             passwordHash: passwordHash,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        console.log(`✅ Создан пользователь ${user.login}`);
+        console.log(`✅ Создан пользователь ${user.login} в Firestore`);
     }
 }
 
@@ -199,16 +201,20 @@ async function checkPassword() {
     }
 
     try {
+        console.log(`🔐 Попытка входа: логин=${login}`);
+        
         // Проверяем, включён ли провайдер Email/Password
         if (!auth) {
             errorMessage.textContent = 'Ошибка аутентификации';
             return;
         }
 
+        // 1. Ищем пользователя в Firestore
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('login', '==', login).get();
         
         if (snapshot.empty) {
+            console.warn('❌ Пользователь не найден в Firestore');
             errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
             document.getElementById('password').value = '';
             return;
@@ -216,41 +222,62 @@ async function checkPassword() {
         
         const userDoc = snapshot.docs[0];
         const userData = userDoc.data();
+        console.log('👤 Найден пользователь в Firestore:', userData.login, userData.name);
+
+        // 2. Проверяем пароль
         const hash = hashPasswordWithSalt(password, userData.salt || '');
-        
         if (userData.passwordHash !== hash) {
+            console.warn('❌ Неверный пароль (хэш не совпадает)');
             errorMessage.textContent = 'ОШИБКА: Неверный логин или пароль';
             document.getElementById('password').value = '';
             return;
         }
+        console.log('✅ Пароль совпадает с хэшем');
 
+        // 3. Работа с Firebase Authentication
         const email = login + '@wolf.com';
+        console.log('📧 Email для Auth:', email);
         
         let authUser;
         try {
             // Пытаемся войти
+            console.log('🔑 Пытаемся войти через signInWithEmailAndPassword...');
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
             authUser = userCredential.user;
+            console.log('✅ Вход выполнен, UID:', authUser.uid);
         } catch (authError) {
+            console.warn('⚠️ Ошибка Firebase Auth:', authError.code, authError.message);
+            
             if (authError.code === 'auth/user-not-found') {
                 // Пользователя нет в Auth – создаём
+                console.log('🆕 Пользователь не найден в Auth, создаём...');
                 const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                 authUser = userCredential.user;
+                console.log('✅ Пользователь создан в Auth, UID:', authUser.uid);
             } else if (authError.code === 'auth/operation-not-allowed') {
-                errorMessage.textContent = 'Ошибка: вход через Email/Password не включён в Firebase';
+                errorMessage.textContent = 'Ошибка: вход через Email/Password не включён в Firebase. Включите его в консоли Firebase.';
+                return;
+            } else if (authError.code === 'auth/wrong-password') {
+                errorMessage.textContent = 'ОШИБКА: Неверный пароль (в Firebase Auth)';
+                return;
+            } else if (authError.code === 'auth/invalid-email') {
+                errorMessage.textContent = 'ОШИБКА: Некорректный email';
                 return;
             } else {
-                // Другая ошибка (например, неправильный пароль, если пользователь уже есть)
+                // Другая ошибка
                 errorMessage.textContent = 'Ошибка входа: ' + authError.message;
                 return;
             }
         }
         
-        // Обновляем authUid в документе пользователя, если его нет или он изменился
+        // 4. Обновляем authUid в документе пользователя, если его нет или он изменился
         if (!userData.authUid || userData.authUid !== authUser.uid) {
+            console.log('🔄 Обновляем authUid в Firestore...');
             await userDoc.ref.update({ authUid: authUser.uid });
+            console.log('✅ authUid обновлён');
         }
         
+        // 5. Устанавливаем текущего пользователя
         currentUser = {
             login: userData.login,
             name: userData.name,
@@ -260,15 +287,17 @@ async function checkPassword() {
         };
         
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
+        console.log('💾 Текущий пользователь сохранён в sessionStorage');
         
         await initUserContacts();
         await updateUserStatus(true);
         
         showPage('app');
         await loadUserInterface();
+        console.log('🎉 Вход успешно завершён');
         
     } catch (error) {
-        console.error('Ошибка при входе:', error);
+        console.error('❌ Непредвиденная ошибка:', error);
         errorMessage.textContent = 'Ошибка подключения к серверу';
     }
 }
