@@ -68,7 +68,6 @@ function initApp() {
     
     initInterface();
     
-    // Проверяем, есть ли пользователи в Firestore, если нет – создаём
     ensurePredefinedUsers().catch(console.error);
     
     auth.onAuthStateChanged(async (user) => {
@@ -203,13 +202,11 @@ async function checkPassword() {
     try {
         console.log(`🔐 Попытка входа: логин=${login}`);
         
-        // Проверяем, включён ли провайдер Email/Password
         if (!auth) {
             errorMessage.textContent = 'Ошибка аутентификации';
             return;
         }
 
-        // 1. Ищем пользователя в Firestore
         const usersRef = db.collection('users');
         const snapshot = await usersRef.where('login', '==', login).get();
         
@@ -224,7 +221,6 @@ async function checkPassword() {
         const userData = userDoc.data();
         console.log('👤 Найден пользователь в Firestore:', userData.login, userData.name);
 
-        // 2. Проверяем пароль
         const hash = hashPasswordWithSalt(password, userData.salt || '');
         if (userData.passwordHash !== hash) {
             console.warn('❌ Неверный пароль (хэш не совпадает)');
@@ -234,13 +230,11 @@ async function checkPassword() {
         }
         console.log('✅ Пароль совпадает с хэшем');
 
-        // 3. Работа с Firebase Authentication
         const email = login + '@wolf.com';
         console.log('📧 Email для Auth:', email);
         
         let authUser;
         try {
-            // Пытаемся войти
             console.log('🔑 Пытаемся войти через signInWithEmailAndPassword...');
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
             authUser = userCredential.user;
@@ -248,36 +242,42 @@ async function checkPassword() {
         } catch (authError) {
             console.warn('⚠️ Ошибка Firebase Auth:', authError.code, authError.message);
             
-            if (authError.code === 'auth/user-not-found') {
-                // Пользователя нет в Auth – создаём
-                console.log('🆕 Пользователь не найден в Auth, создаём...');
-                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                authUser = userCredential.user;
-                console.log('✅ Пользователь создан в Auth, UID:', authUser.uid);
-            } else if (authError.code === 'auth/operation-not-allowed') {
+            if (authError.code === 'auth/operation-not-allowed') {
                 errorMessage.textContent = 'Ошибка: вход через Email/Password не включён в Firebase. Включите его в консоли Firebase.';
                 return;
-            } else if (authError.code === 'auth/wrong-password') {
-                errorMessage.textContent = 'ОШИБКА: Неверный пароль (в Firebase Auth)';
-                return;
-            } else if (authError.code === 'auth/invalid-email') {
-                errorMessage.textContent = 'ОШИБКА: Некорректный email';
-                return;
+            }
+            
+            // Если пользователь не найден или неверные данные - пробуем создать
+            if (authError.code === 'auth/user-not-found' || 
+                authError.code === 'auth/internal-error' || 
+                authError.message.includes('INVALID_LOGIN_CREDENTIALS')) {
+                
+                console.log('🆕 Пользователь не найден в Auth, создаём...');
+                try {
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    authUser = userCredential.user;
+                    console.log('✅ Пользователь создан в Auth, UID:', authUser.uid);
+                } catch (createError) {
+                    console.error('❌ Ошибка создания пользователя:', createError);
+                    if (createError.code === 'auth/email-already-in-use') {
+                        errorMessage.textContent = 'Пользователь уже существует, но пароль не совпадает.';
+                    } else {
+                        errorMessage.textContent = 'Ошибка создания аккаунта: ' + createError.message;
+                    }
+                    return;
+                }
             } else {
-                // Другая ошибка
                 errorMessage.textContent = 'Ошибка входа: ' + authError.message;
                 return;
             }
         }
         
-        // 4. Обновляем authUid в документе пользователя, если его нет или он изменился
         if (!userData.authUid || userData.authUid !== authUser.uid) {
             console.log('🔄 Обновляем authUid в Firestore...');
             await userDoc.ref.update({ authUid: authUser.uid });
             console.log('✅ authUid обновлён');
         }
         
-        // 5. Устанавливаем текущего пользователя
         currentUser = {
             login: userData.login,
             name: userData.name,
