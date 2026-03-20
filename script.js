@@ -153,6 +153,8 @@ async function ensureAdminContacts() {
             const snap = await usersRef.where('login', '==', login).get();
             if (!snap.empty) {
                 admins.push(snap.docs[0].data());
+            } else {
+                console.warn(`⚠️ Не найден администратор с логином ${login}`);
             }
         }
         
@@ -161,9 +163,10 @@ async function ensureAdminContacts() {
             return;
         }
         
-        const admin1 = admins[0];
-        const admin2 = admins[1];
+        const admin1 = admins[0]; // 247
+        const admin2 = admins[1]; // 001
         
+        // Синхронизируем контакты для admin1
         const contactsRef1 = db.collection('contacts').doc(admin1.chatId);
         const doc1 = await contactsRef1.get();
         if (!doc1.exists) {
@@ -175,9 +178,12 @@ async function ensureAdminContacts() {
                 contacts.push(admin2.chatId);
                 await contactsRef1.update({ contacts });
                 console.log(`✅ Добавлен контакт для ${admin1.login} -> ${admin2.login}`);
+            } else {
+                console.log(`ℹ️ Контакт ${admin1.login} -> ${admin2.login} уже существует`);
             }
         }
         
+        // Синхронизируем контакты для admin2
         const contactsRef2 = db.collection('contacts').doc(admin2.chatId);
         const doc2 = await contactsRef2.get();
         if (!doc2.exists) {
@@ -189,10 +195,19 @@ async function ensureAdminContacts() {
                 contacts.push(admin1.chatId);
                 await contactsRef2.update({ contacts });
                 console.log(`✅ Добавлен контакт для ${admin2.login} -> ${admin1.login}`);
+            } else {
+                console.log(`ℹ️ Контакт ${admin2.login} -> ${admin1.login} уже существует`);
             }
         }
         
         console.log('✅ Контакты администраторов синхронизированы');
+        
+        // Если текущий пользователь уже загружен и он является администратором, обновляем список контактов
+        if (currentUser && (currentUser.chatId === admin1.chatId || currentUser.chatId === admin2.chatId)) {
+            console.log('🔄 Обновляем список контактов для текущего администратора');
+            await loadContacts();
+        }
+        
     } catch (error) {
         console.error('Ошибка при синхронизации контактов администраторов:', error);
     }
