@@ -53,6 +53,14 @@ function initApp() {
     try {
         db = firebase.firestore();
         auth = firebase.auth();
+        
+        // ⚙️ Устанавливаем persistence NONE, чтобы сессия не сохранялась между перезагрузками
+        if (auth.setPersistence) {
+            auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
+                .then(() => console.log('✅ Persistence установлен в NONE (сессия не сохраняется)'))
+                .catch((err) => console.warn('⚠️ Ошибка установки persistence:', err));
+        }
+        
         db.enablePersistence()
             .then(() => console.log('✅ Оффлайн поддержка включена'))
             .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
@@ -68,7 +76,10 @@ function initApp() {
     
     initInterface();
     
-    ensurePredefinedUsers().catch(console.error);
+    // Создаём предустановленных пользователей, если их нет
+    ensurePredefinedUsers()
+        .catch(console.error)
+        .then(() => ensureAdminContacts().catch(console.error));
     
     auth.onAuthStateChanged(async (user) => {
         if (user) {
@@ -128,6 +139,62 @@ async function ensurePredefinedUsers() {
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         console.log(`✅ Создан пользователь ${user.login} в Firestore`);
+    }
+}
+
+async function ensureAdminContacts() {
+    if (!db) return;
+    try {
+        const adminLogins = ["247", "001"];
+        const usersRef = db.collection('users');
+        const admins = [];
+        
+        for (let login of adminLogins) {
+            const snap = await usersRef.where('login', '==', login).get();
+            if (!snap.empty) {
+                admins.push(snap.docs[0].data());
+            }
+        }
+        
+        if (admins.length < 2) {
+            console.warn('⚠️ Не удалось найти обоих администраторов для синхронизации контактов');
+            return;
+        }
+        
+        const admin1 = admins[0];
+        const admin2 = admins[1];
+        
+        const contactsRef1 = db.collection('contacts').doc(admin1.chatId);
+        const doc1 = await contactsRef1.get();
+        if (!doc1.exists) {
+            await contactsRef1.set({ userId: admin1.chatId, contacts: [admin2.chatId] });
+            console.log(`✅ Создан контакт для ${admin1.login} -> ${admin2.login}`);
+        } else {
+            const contacts = doc1.data().contacts || [];
+            if (!contacts.includes(admin2.chatId)) {
+                contacts.push(admin2.chatId);
+                await contactsRef1.update({ contacts });
+                console.log(`✅ Добавлен контакт для ${admin1.login} -> ${admin2.login}`);
+            }
+        }
+        
+        const contactsRef2 = db.collection('contacts').doc(admin2.chatId);
+        const doc2 = await contactsRef2.get();
+        if (!doc2.exists) {
+            await contactsRef2.set({ userId: admin2.chatId, contacts: [admin1.chatId] });
+            console.log(`✅ Создан контакт для ${admin2.login} -> ${admin1.login}`);
+        } else {
+            const contacts = doc2.data().contacts || [];
+            if (!contacts.includes(admin1.chatId)) {
+                contacts.push(admin1.chatId);
+                await contactsRef2.update({ contacts });
+                console.log(`✅ Добавлен контакт для ${admin2.login} -> ${admin1.login}`);
+            }
+        }
+        
+        console.log('✅ Контакты администраторов синхронизированы');
+    } catch (error) {
+        console.error('Ошибка при синхронизации контактов администраторов:', error);
     }
 }
 
@@ -247,7 +314,6 @@ async function checkPassword() {
                 return;
             }
             
-            // Если пользователь не найден или неверные данные - пробуем создать
             if (authError.code === 'auth/user-not-found' || 
                 authError.code === 'auth/internal-error' || 
                 authError.message.includes('INVALID_LOGIN_CREDENTIALS')) {
