@@ -1,4 +1,5 @@
 const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
+const MAX_MESSAGE_LENGTH = 5000;
 
 function encryptText(text, key) {
     const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
