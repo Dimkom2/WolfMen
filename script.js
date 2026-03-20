@@ -54,10 +54,9 @@ function initApp() {
         db = firebase.firestore();
         auth = firebase.auth();
         
-        // ⚙️ Устанавливаем persistence NONE, чтобы сессия не сохранялась между перезагрузками
         if (auth.setPersistence) {
             auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
-                .then(() => console.log('✅ Persistence установлен в NONE (сессия не сохраняется)'))
+                .then(() => console.log('✅ Persistence NONE (сессия не сохраняется)'))
                 .catch((err) => console.warn('⚠️ Ошибка установки persistence:', err));
         }
         
@@ -76,10 +75,9 @@ function initApp() {
     
     initInterface();
     
-    // Создаём предустановленных пользователей, если их нет
-    ensurePredefinedUsers()
-        .catch(console.error)
-        .then(() => ensureAdminContacts().catch(console.error));
+    // Создаём только администраторов при пустой базе
+    ensureAdminUsers().catch(console.error);
+    ensureAdminContacts().catch(console.error);
     
     auth.onAuthStateChanged(async (user) => {
         if (user) {
@@ -109,24 +107,22 @@ function initApp() {
     }
 }
 
-async function ensurePredefinedUsers() {
+// Создаёт только двух администраторов, если коллекция users пуста
+async function ensureAdminUsers() {
     const usersRef = db.collection('users');
     const snapshot = await usersRef.get();
     if (!snapshot.empty) {
-        console.log('👥 Пользователи уже существуют в Firestore');
+        console.log('👥 Пользователи уже существуют');
         return;
     }
 
-    console.log('🆕 Создаём предустановленных пользователей в Firestore...');
-    const predefinedUsers = [
+    console.log('🆕 Создаём администраторов 247 и 001...');
+    const adminList = [
         { login: "247", password: "Utka2022@", name: "Агент 247", chatId: "247", isAdmin: true },
-        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true },
-        { login: "749", password: "Dinozavr456@", name: "Агент 749", chatId: "749", isAdmin: false },
-        { login: "456", password: "Utka2022@", name: "Агент 456", chatId: "456", isAdmin: false },
-        { login: "947", password: "SigmaUbiyca654@", name: "Агент 947", chatId: "947", isAdmin: false }
+        { login: "001", password: "Pomidor:2022@", name: "Организатор", chatId: "001", isAdmin: true }
     ];
 
-    for (const user of predefinedUsers) {
+    for (const user of adminList) {
         const salt = generateSalt();
         const passwordHash = hashPasswordWithSalt(user.password, salt);
         await usersRef.doc(user.chatId).set({
@@ -138,10 +134,11 @@ async function ensurePredefinedUsers() {
             passwordHash: passwordHash,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        console.log(`✅ Создан пользователь ${user.login} в Firestore`);
+        console.log(`✅ Создан администратор ${user.login}`);
     }
 }
 
+// Синхронизирует контакты между администраторами (если их нет)
 async function ensureAdminContacts() {
     if (!db) return;
     try {
@@ -151,66 +148,204 @@ async function ensureAdminContacts() {
         
         for (let login of adminLogins) {
             const snap = await usersRef.where('login', '==', login).get();
-            if (!snap.empty) {
-                admins.push(snap.docs[0].data());
-            } else {
-                console.warn(`⚠️ Не найден администратор с логином ${login}`);
-            }
+            if (!snap.empty) admins.push(snap.docs[0].data());
         }
         
         if (admins.length < 2) {
-            console.warn('⚠️ Не удалось найти обоих администраторов для синхронизации контактов');
+            console.warn('⚠️ Не удалось найти обоих администраторов для синхронизации');
             return;
         }
         
-        const admin1 = admins[0]; // 247
-        const admin2 = admins[1]; // 001
+        const admin1 = admins[0];
+        const admin2 = admins[1];
         
-        // Синхронизируем контакты для admin1
-        const contactsRef1 = db.collection('contacts').doc(admin1.chatId);
-        const doc1 = await contactsRef1.get();
-        if (!doc1.exists) {
-            await contactsRef1.set({ userId: admin1.chatId, contacts: [admin2.chatId] });
-            console.log(`✅ Создан контакт для ${admin1.login} -> ${admin2.login}`);
-        } else {
-            const contacts = doc1.data().contacts || [];
-            if (!contacts.includes(admin2.chatId)) {
-                contacts.push(admin2.chatId);
-                await contactsRef1.update({ contacts });
-                console.log(`✅ Добавлен контакт для ${admin1.login} -> ${admin2.login}`);
-            } else {
-                console.log(`ℹ️ Контакт ${admin1.login} -> ${admin2.login} уже существует`);
-            }
-        }
-        
-        // Синхронизируем контакты для admin2
-        const contactsRef2 = db.collection('contacts').doc(admin2.chatId);
-        const doc2 = await contactsRef2.get();
-        if (!doc2.exists) {
-            await contactsRef2.set({ userId: admin2.chatId, contacts: [admin1.chatId] });
-            console.log(`✅ Создан контакт для ${admin2.login} -> ${admin1.login}`);
-        } else {
-            const contacts = doc2.data().contacts || [];
-            if (!contacts.includes(admin1.chatId)) {
-                contacts.push(admin1.chatId);
-                await contactsRef2.update({ contacts });
-                console.log(`✅ Добавлен контакт для ${admin2.login} -> ${admin1.login}`);
-            } else {
-                console.log(`ℹ️ Контакт ${admin2.login} -> ${admin1.login} уже существует`);
-            }
-        }
+        // Взаимное добавление контактов
+        await addContactIfMissing(admin1.chatId, admin2.chatId);
+        await addContactIfMissing(admin2.chatId, admin1.chatId);
         
         console.log('✅ Контакты администраторов синхронизированы');
         
-        // Если текущий пользователь уже загружен и он является администратором, обновляем список контактов
         if (currentUser && (currentUser.chatId === admin1.chatId || currentUser.chatId === admin2.chatId)) {
-            console.log('🔄 Обновляем список контактов для текущего администратора');
             await loadContacts();
         }
-        
     } catch (error) {
-        console.error('Ошибка при синхронизации контактов администраторов:', error);
+        console.error('Ошибка синхронизации контактов:', error);
     }
+}
+
+// Вспомогательная функция: добавить контакт, если отсутствует
+async function addContactIfMissing(userId, contactId) {
+    const ref = db.collection('contacts').doc(userId);
+    const doc = await ref.get();
+    if (!doc.exists) {
+        await ref.set({ userId: userId, contacts: [contactId] });
+        return true;
+    } else {
+        const contacts = doc.data().contacts || [];
+        if (!contacts.includes(contactId)) {
+            contacts.push(contactId);
+            await ref.update({ contacts });
+            return true;
+        }
+    }
+    return false;
+}
+
+// Команда /addk логин пароль (только для администраторов)
+async function handleAddUserCommand(login, password) {
+    if (!currentUser || !currentUser.isAdmin) {
+        return "❌ Только администраторы могут создавать пользователей.";
+    }
+    
+    login = login.trim();
+    if (!login || !password) return "❌ Использование: /addk логин пароль";
+    if (login.length < 3) return "❌ Логин должен быть не короче 3 символов";
+    if (password.length < 6) return "❌ Пароль должен быть не короче 6 символов";
+    
+    try {
+        // Проверяем, существует ли уже пользователь с таким логином
+        const existing = await db.collection('users').where('login', '==', login).get();
+        if (!existing.empty) return "❌ Пользователь с таким логином уже существует.";
+        
+        // Создаём в Firestore
+        const chatId = login;
+        const salt = generateSalt();
+        const passwordHash = hashPasswordWithSalt(password, salt);
+        const userData = {
+            login: login,
+            name: login, // можно позже изменить
+            chatId: chatId,
+            isAdmin: false,
+            salt: salt,
+            passwordHash: passwordHash,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await db.collection('users').doc(chatId).set(userData);
+        
+        // Создаём в Authentication
+        const email = login + '@wolf.com';
+        try {
+            await auth.createUserWithEmailAndPassword(email, password);
+        } catch (authError) {
+            // Если не удалось создать в Auth, откатываем Firestore
+            await db.collection('users').doc(chatId).delete();
+            if (authError.code === 'auth/email-already-in-use') {
+                return "❌ Email уже используется в Authentication. Возможно, пользователь уже был создан ранее.";
+            }
+            return "❌ Ошибка создания в Authentication: " + authError.message;
+        }
+        
+        // Добавляем контакты: новый пользователь ↔ администраторы
+        const admins = await db.collection('users').where('isAdmin', '==', true).get();
+        for (let adminDoc of admins.docs) {
+            const adminData = adminDoc.data();
+            // У администратора добавляем нового
+            await addContactIfMissing(adminData.chatId, chatId);
+            // У нового добавляем администратора
+            await addContactIfMissing(chatId, adminData.chatId);
+        }
+        
+        return `✅ Пользователь ${login} успешно создан. Пароль установлен. Контакты с администраторами добавлены.`;
+    } catch (error) {
+        console.error('Ошибка создания пользователя:', error);
+        return "❌ Ошибка создания пользователя: " + error.message;
+    }
+}
+
+// Команда /changepass логин старый_пароль новый_пароль
+async function handleChangePassword(login, oldPass, newPass) {
+    if (!currentUser) return "❌ Вы не авторизованы.";
+    
+    // Проверка прав: либо меняем свой пароль, либо мы админ
+    const isSelf = (currentUser.login === login);
+    if (!isSelf && !currentUser.isAdmin) {
+        return "❌ Только администраторы могут менять чужие пароли.";
+    }
+    
+    try {
+        const userSnap = await db.collection('users').where('login', '==', login).get();
+        if (userSnap.empty) return "❌ Пользователь не найден.";
+        const userDoc = userSnap.docs[0];
+        const userData = userDoc.data();
+        
+        // Если меняем не свой пароль, проверяем старый пароль только если это делает сам пользователь
+        if (isSelf) {
+            const oldHash = hashPasswordWithSalt(oldPass, userData.salt);
+            if (userData.passwordHash !== oldHash) {
+                return "❌ Неверный старый пароль.";
+            }
+        }
+        
+        // Обновляем хэш в Firestore
+        const newSalt = generateSalt();
+        const newHash = hashPasswordWithSalt(newPass, newSalt);
+        await userDoc.ref.update({
+            salt: newSalt,
+            passwordHash: newHash
+        });
+        
+        // Обновляем пароль в Authentication
+        const email = login + '@wolf.com';
+        const authUser = auth.currentUser;
+        if (authUser && authUser.email === email) {
+            await authUser.updatePassword(newPass);
+        } else {
+            // Если текущий пользователь не тот, чей пароль меняем, нужно войти от его имени? 
+            // Но это сложно, поэтому просто обновим через admin SDK? Его нет. 
+            // Ограничимся сменой только для текущего пользователя или администратора с доступом к Auth.
+            // Для администратора, меняющего чужой пароль, нужен admin SDK, которого у нас нет.
+            // Поэтому пока запретим менять чужие пароли (или предложим менять только свой).
+            if (!isSelf) {
+                return "⚠️ Смена пароля другого пользователя требует дополнительных прав. Пока доступно только для своего аккаунта.";
+            }
+        }
+        
+        return `✅ Пароль для ${login} успешно изменён.`;
+    } catch (error) {
+        console.error('Ошибка смены пароля:', error);
+        return "❌ Ошибка смены пароля: " + error.message;
+    }
+}
+
+// Дополняем обработчик команд
+function handleCommand(message) {
+    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
+        showAgreement();
+        return true;
+    }
+    if (message.startsWith('/add ')) {
+        if (currentUser?.isAdmin) handleAddCommand(message);
+        else alert('Только администраторы могут добавлять контакты');
+        return true;
+    }
+    if (message.startsWith('/addk ')) {
+        if (!currentUser?.isAdmin) {
+            alert('Только администраторы могут создавать пользователей');
+            return true;
+        }
+        const parts = message.split(' ');
+        if (parts.length !== 3) {
+            alert('Использование: /addk логин пароль');
+            return true;
+        }
+        const login = parts[1];
+        const password = parts[2];
+        handleAddUserCommand(login, password).then(msg => alert(msg));
+        return true;
+    }
+    if (message.startsWith('/changepass ')) {
+        const parts = message.split(' ');
+        if (parts.length !== 4) {
+            alert('Использование: /changepass логин старый_пароль новый_пароль');
+            return true;
+        }
+        const login = parts[1];
+        const oldPass = parts[2];
+        const newPass = parts[3];
+        handleChangePassword(login, oldPass, newPass).then(msg => alert(msg));
+        return true;
+    }
+    return false;
 }
 
 async function restoreUserSession(user) {
@@ -612,144 +747,6 @@ function loadChatHistory() {
         messagesContainer.innerHTML = `<div class="welcome-message">Ошибка подключения</div>`;
     }
 }
-
-function handleCommand(message) {
-    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
-        showAgreement();
-        return true;
-    }
-    if (message.startsWith('/add ')) {
-        if (currentUser?.isAdmin) handleAddCommand(message);
-        else alert('Только администраторы могут добавлять контакты');
-        return true;
-    }
-    return false;
-}
-
-async function handleAddCommand(message) {
-    const parts = message.split(' ').filter(p => p);
-    if (parts.length !== 3) return alert('Использование: /add логин1 логин2');
-    const [_, login1, login2] = parts;
-    if (login1 === login2) return alert('Нельзя добавить себя к себе');
-    
-    const user1Snap = await db.collection('users').where('login','==',login1).get();
-    const user2Snap = await db.collection('users').where('login','==',login2).get();
-    if (user1Snap.empty || user2Snap.empty) return alert('Один из логинов не существует');
-    
-    const acc1 = user1Snap.docs[0].data();
-    const acc2 = user2Snap.docs[0].data();
-    
-    try {
-        const added1 = await addContact(acc1.chatId, acc2.chatId);
-        const added2 = await addContact(acc2.chatId, acc1.chatId);
-        if (currentUser.chatId === acc1.chatId || currentUser.chatId === acc2.chatId) loadContacts();
-        if (added1 || added2) {
-            alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
-        } else {
-            alert('Эти контакты уже были добавлены');
-        }
-    } catch (e) {
-        alert('Ошибка');
-    }
-}
-
-async function addContact(userId, contactId) {
-    const ref = db.collection('contacts').doc(userId);
-    let added = false;
-    await db.runTransaction(async tx => {
-        const doc = await tx.get(ref);
-        if (!doc.exists) {
-            tx.set(ref, { userId, contacts: [contactId], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-            added = true;
-        } else {
-            const contacts = doc.data().contacts || [];
-            if (!contacts.includes(contactId)) {
-                contacts.push(contactId);
-                tx.update(ref, { contacts, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-                added = true;
-            }
-        }
-    });
-    return added;
-}
-
-function showAgreement() {
-    const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
-
-Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
-
-1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
-1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
-1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
-
-2. ОТВЕТСТВЕННОСТЬ
-2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
-2.2. Администрация вправе требовать возмещения убытков.
-
-3. ВОЗРАСТ
-3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
-
-Нажимая «ЗАКРЫТЬ», вы подтверждаете, что ознакомлены.`;
-
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.95);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 10000;
-        padding: 20px;
-    `;
-
-    const content = document.createElement('div');
-    content.style.cssText = `
-        background: #000;
-        border: 2px solid #ff4444;
-        border-radius: 10px;
-        padding: 20px;
-        max-width: 500px;
-        max-height: 80vh;
-        overflow-y: auto;
-        color: #fff;
-        font-family: 'Inter', sans-serif;
-    `;
-
-    const text = document.createElement('div');
-    text.style.cssText = `
-        white-space: pre-line;
-        line-height: 1.4;
-        font-size: 14px;
-        color: #ff4444;
-        margin-bottom: 20px;
-    `;
-    text.textContent = agreementText;
-
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = 'ЗАКРЫТЬ';
-    closeBtn.style.cssText = `
-        background: #ff4444;
-        color: #000;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        width: 100%;
-        font-weight: bold;
-    `;
-    closeBtn.onclick = () => document.body.removeChild(modal);
-
-    content.appendChild(text);
-    content.appendChild(closeBtn);
-    modal.appendChild(content);
-    document.body.appendChild(modal);
-}
-
-const MAX_MESSAGE_LENGTH = 5000;
 
 async function sendMessage() {
     if (!currentUser || !currentChat || !db) return showPage('login-page');
