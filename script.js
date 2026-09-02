@@ -76,7 +76,6 @@ function initApp() {
     
     initInterface();
     
-    // Создаём только администраторов при пустой базе
     ensureAdminUsers().catch(console.error);
     ensureAdminContacts().catch(console.error);
     
@@ -108,7 +107,6 @@ function initApp() {
     }
 }
 
-// Создаёт только двух администраторов, если коллекция users пуста
 async function ensureAdminUsers() {
     const usersRef = db.collection('users');
     const snapshot = await usersRef.get();
@@ -139,7 +137,6 @@ async function ensureAdminUsers() {
     }
 }
 
-// Синхронизирует контакты между администраторами (если их нет)
 async function ensureAdminContacts() {
     if (!db) return;
     try {
@@ -160,7 +157,6 @@ async function ensureAdminContacts() {
         const admin1 = admins[0];
         const admin2 = admins[1];
         
-        // Взаимное добавление контактов
         await addContactIfMissing(admin1.chatId, admin2.chatId);
         await addContactIfMissing(admin2.chatId, admin1.chatId);
         
@@ -174,7 +170,6 @@ async function ensureAdminContacts() {
     }
 }
 
-// Вспомогательная функция: добавить контакт, если отсутствует
 async function addContactIfMissing(userId, contactId) {
     const ref = db.collection('contacts').doc(userId);
     const doc = await ref.get();
@@ -192,7 +187,6 @@ async function addContactIfMissing(userId, contactId) {
     return false;
 }
 
-// Команда /addk логин пароль (только для администраторов)
 async function handleAddUserCommand(login, password) {
     if (!currentUser || !currentUser.isAdmin) {
         return "❌ Только администраторы могут создавать пользователей.";
@@ -204,17 +198,15 @@ async function handleAddUserCommand(login, password) {
     if (password.length < 6) return "❌ Пароль должен быть не короче 6 символов";
     
     try {
-        // Проверяем, существует ли уже пользователь с таким логином
         const existing = await db.collection('users').where('login', '==', login).get();
         if (!existing.empty) return "❌ Пользователь с таким логином уже существует.";
         
-        // Создаём в Firestore
         const chatId = login;
         const salt = generateSalt();
         const passwordHash = hashPasswordWithSalt(password, salt);
         const userData = {
             login: login,
-            name: login, // можно позже изменить
+            name: login,
             chatId: chatId,
             isAdmin: false,
             salt: salt,
@@ -223,12 +215,10 @@ async function handleAddUserCommand(login, password) {
         };
         await db.collection('users').doc(chatId).set(userData);
         
-        // Создаём в Authentication
         const email = login + '@wolf.com';
         try {
             await auth.createUserWithEmailAndPassword(email, password);
         } catch (authError) {
-            // Если не удалось создать в Auth, откатываем Firestore
             await db.collection('users').doc(chatId).delete();
             if (authError.code === 'auth/email-already-in-use') {
                 return "❌ Email уже используется в Authentication. Возможно, пользователь уже был создан ранее.";
@@ -236,13 +226,10 @@ async function handleAddUserCommand(login, password) {
             return "❌ Ошибка создания в Authentication: " + authError.message;
         }
         
-        // Добавляем контакты: новый пользователь ↔ администраторы
         const admins = await db.collection('users').where('isAdmin', '==', true).get();
         for (let adminDoc of admins.docs) {
             const adminData = adminDoc.data();
-            // У администратора добавляем нового
             await addContactIfMissing(adminData.chatId, chatId);
-            // У нового добавляем администратора
             await addContactIfMissing(chatId, adminData.chatId);
         }
         
@@ -253,11 +240,9 @@ async function handleAddUserCommand(login, password) {
     }
 }
 
-// Команда /changepass логин старый_пароль новый_пароль
 async function handleChangePassword(login, oldPass, newPass) {
     if (!currentUser) return "❌ Вы не авторизованы.";
     
-    // Проверка прав: либо меняем свой пароль, либо мы админ
     const isSelf = (currentUser.login === login);
     if (!isSelf && !currentUser.isAdmin) {
         return "❌ Только администраторы могут менять чужие пароли.";
@@ -269,7 +254,6 @@ async function handleChangePassword(login, oldPass, newPass) {
         const userDoc = userSnap.docs[0];
         const userData = userDoc.data();
         
-        // Если меняем не свой пароль, проверяем старый пароль только если это делает сам пользователь
         if (isSelf) {
             const oldHash = hashPasswordWithSalt(oldPass, userData.salt);
             if (userData.passwordHash !== oldHash) {
@@ -277,7 +261,6 @@ async function handleChangePassword(login, oldPass, newPass) {
             }
         }
         
-        // Обновляем хэш в Firestore
         const newSalt = generateSalt();
         const newHash = hashPasswordWithSalt(newPass, newSalt);
         await userDoc.ref.update({
@@ -285,17 +268,11 @@ async function handleChangePassword(login, oldPass, newPass) {
             passwordHash: newHash
         });
         
-        // Обновляем пароль в Authentication
         const email = login + '@wolf.com';
         const authUser = auth.currentUser;
         if (authUser && authUser.email === email) {
             await authUser.updatePassword(newPass);
         } else {
-            // Если текущий пользователь не тот, чей пароль меняем, нужно войти от его имени? 
-            // Но это сложно, поэтому просто обновим через admin SDK? Его нет. 
-            // Ограничимся сменой только для текущего пользователя или администратора с доступом к Auth.
-            // Для администратора, меняющего чужой пароль, нужен admin SDK, которого у нас нет.
-            // Поэтому пока запретим менять чужие пароли (или предложим менять только свой).
             if (!isSelf) {
                 return "⚠️ Смена пароля другого пользователя требует дополнительных прав. Пока доступно только для своего аккаунта.";
             }
@@ -306,47 +283,6 @@ async function handleChangePassword(login, oldPass, newPass) {
         console.error('Ошибка смены пароля:', error);
         return "❌ Ошибка смены пароля: " + error.message;
     }
-}
-
-// Дополняем обработчик команд
-function handleCommand(message) {
-    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
-        showAgreement();
-        return true;
-    }
-    if (message.startsWith('/add ')) {
-        if (currentUser?.isAdmin) handleAddCommand(message);
-        else alert('Только администраторы могут добавлять контакты');
-        return true;
-    }
-    if (message.startsWith('/addk ')) {
-        if (!currentUser?.isAdmin) {
-            alert('Только администраторы могут создавать пользователей');
-            return true;
-        }
-        const parts = message.split(' ');
-        if (parts.length !== 3) {
-            alert('Использование: /addk логин пароль');
-            return true;
-        }
-        const login = parts[1];
-        const password = parts[2];
-        handleAddUserCommand(login, password).then(msg => alert(msg));
-        return true;
-    }
-    if (message.startsWith('/changepass ')) {
-        const parts = message.split(' ');
-        if (parts.length !== 4) {
-            alert('Использование: /changepass логин старый_пароль новый_пароль');
-            return true;
-        }
-        const login = parts[1];
-        const oldPass = parts[2];
-        const newPass = parts[3];
-        handleChangePassword(login, oldPass, newPass).then(msg => alert(msg));
-        return true;
-    }
-    return false;
 }
 
 async function restoreUserSession(user) {
@@ -558,7 +494,6 @@ async function loadUserInterface() {
     await checkUserConsent();
     
     loadContacts();
-    initInterface();
 }
 
 function showConsentModal() {
@@ -749,7 +684,13 @@ function loadChatHistory() {
     }
 }
 
+let isSending = false;
+
 async function sendMessage() {
+    if (isSending) {
+        console.warn('⚠️ Отправка уже выполняется, пропускаем');
+        return;
+    }
     if (!currentUser || !currentChat || !db) return showPage('login-page');
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
@@ -776,13 +717,14 @@ async function sendMessage() {
         return;
     }
     
-    const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
-    const encrypted = encryptText(text, chatKey);
-    const tempId = 'temp_' + Date.now();
-    addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
-    input.value = '';
-    
+    isSending = true;
     try {
+        const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
+        const encrypted = encryptText(text, chatKey);
+        const tempId = 'temp_' + Date.now();
+        addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
+        input.value = '';
+        
         await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -803,6 +745,8 @@ async function sendMessage() {
             tempEl.classList.add('error');
             tempEl.querySelector('.message-text').textContent = '❌ Ошибка: ' + text;
         }
+    } finally {
+        isSending = false;
     }
 }
 
@@ -884,9 +828,8 @@ function hideChatWindow() {
 function initInterface() {
     const input = document.getElementById('messageInput');
     if (input) {
-        input.addEventListener('keypress', e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-        });
+        input.removeEventListener('keypress', handleEnter);
+        input.addEventListener('keypress', handleEnter);
         input.addEventListener('focus', () => {
             if (window.innerWidth <= 768 && currentChat) {
                 isChatOpen = true;
@@ -896,6 +839,13 @@ function initInterface() {
     }
     window.addEventListener('resize', handleResize);
     handleResize();
+}
+
+function handleEnter(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
 }
 
 function handleResize() {
@@ -917,6 +867,169 @@ function handleResize() {
             document.querySelector('.contacts-panel').style.display = 'flex';
         }
     }
+}
+
+function handleCommand(message) {
+    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
+        showAgreement();
+        return true;
+    }
+    if (message.startsWith('/add ')) {
+        if (currentUser?.isAdmin) handleAddCommand(message);
+        else alert('Только администраторы могут добавлять контакты');
+        return true;
+    }
+    if (message.startsWith('/addk ')) {
+        if (!currentUser?.isAdmin) {
+            alert('Только администраторы могут создавать пользователей');
+            return true;
+        }
+        const parts = message.split(' ');
+        if (parts.length !== 3) {
+            alert('Использование: /addk логин пароль');
+            return true;
+        }
+        const login = parts[1];
+        const password = parts[2];
+        handleAddUserCommand(login, password).then(msg => alert(msg));
+        return true;
+    }
+    if (message.startsWith('/changepass ')) {
+        const parts = message.split(' ');
+        if (parts.length !== 4) {
+            alert('Использование: /changepass логин старый_пароль новый_пароль');
+            return true;
+        }
+        const login = parts[1];
+        const oldPass = parts[2];
+        const newPass = parts[3];
+        handleChangePassword(login, oldPass, newPass).then(msg => alert(msg));
+        return true;
+    }
+    return false;
+}
+
+async function handleAddCommand(message) {
+    const parts = message.split(' ').filter(p => p);
+    if (parts.length !== 3) return alert('Использование: /add логин1 логин2');
+    const [_, login1, login2] = parts;
+    if (login1 === login2) return alert('Нельзя добавить себя к себе');
+    
+    const user1Snap = await db.collection('users').where('login','==',login1).get();
+    const user2Snap = await db.collection('users').where('login','==',login2).get();
+    if (user1Snap.empty || user2Snap.empty) return alert('Один из логинов не существует');
+    
+    const acc1 = user1Snap.docs[0].data();
+    const acc2 = user2Snap.docs[0].data();
+    
+    try {
+        const added1 = await addContact(acc1.chatId, acc2.chatId);
+        const added2 = await addContact(acc2.chatId, acc1.chatId);
+        if (currentUser.chatId === acc1.chatId || currentUser.chatId === acc2.chatId) loadContacts();
+        if (added1 || added2) {
+            alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
+        } else {
+            alert('Эти контакты уже были добавлены');
+        }
+    } catch (e) {
+        alert('Ошибка');
+    }
+}
+
+async function addContact(userId, contactId) {
+    const ref = db.collection('contacts').doc(userId);
+    let added = false;
+    await db.runTransaction(async tx => {
+        const doc = await tx.get(ref);
+        if (!doc.exists) {
+            tx.set(ref, { userId, contacts: [contactId], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            added = true;
+        } else {
+            const contacts = doc.data().contacts || [];
+            if (!contacts.includes(contactId)) {
+                contacts.push(contactId);
+                tx.update(ref, { contacts, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                added = true;
+            }
+        }
+    });
+    return added;
+}
+
+function showAgreement() {
+    const agreementText = `СОГЛАШЕНИЕ О КОНФИДЕНЦИАЛЬНОСТИ
+
+Настоящим Соглашением регулируются условия использования мессенджера Wolf Messenger. Используя Сервис, Пользователь подтверждает согласие с нижеследующими условиями.
+
+1. КОНФИДЕНЦИАЛЬНАЯ ИНФОРМАЦИЯ
+1.1. Вся информация, размещенная в Сервисе, включая факт существования организации, логины, имена, переписку, является конфиденциальной.
+1.2. Пользователь обязуется не разглашать конфиденциальную информацию третьим лицам.
+
+2. ОТВЕТСТВЕННОСТЬ
+2.1. За нарушение обязательств по неразглашению Пользователь несет ответственность по ст. 183 УК РФ.
+2.2. Администрация вправе требовать возмещения убытков.
+
+3. ВОЗРАСТ
+3.1. Используя Сервис, Пользователь подтверждает, что ему исполнилось 18 лет.
+
+Нажимая «ЗАКРЫТЬ», вы подтверждаете, что ознакомлены.`;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.95);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        padding: 20px;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #000;
+        border: 2px solid #ff4444;
+        border-radius: 10px;
+        padding: 20px;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+    `;
+
+    const text = document.createElement('div');
+    text.style.cssText = `
+        white-space: pre-line;
+        line-height: 1.4;
+        font-size: 14px;
+        color: #ff4444;
+        margin-bottom: 20px;
+    `;
+    text.textContent = agreementText;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'ЗАКРЫТЬ';
+    closeBtn.style.cssText = `
+        background: #ff4444;
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-weight: bold;
+    `;
+    closeBtn.onclick = () => document.body.removeChild(modal);
+
+    content.appendChild(text);
+    content.appendChild(closeBtn);
+    modal.appendChild(content);
+    document.body.appendChild(modal);
 }
 
 async function logout() {
