@@ -17,7 +17,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 </head>
 <body>
-    <!-- Экран загрузки (не активен по умолчанию) -->
+    <!-- Экран загрузки -->
     <div id="loading-page" class="page">
         <div class="loading-container">
             <img src="wolf-logo.png" alt="Wolf Logo" class="loading-logo">
@@ -30,7 +30,7 @@
         </div>
     </div>
 
-    <!-- Страница входа (активна сразу для теста) -->
+    <!-- Страница входа -->
     <div id="login-page" class="page active">
         <div class="login-container">
             <img src="wolf-logo.png" alt="Wolf Logo" class="login-logo">
@@ -47,7 +47,6 @@
 
     <!-- Основной интерфейс мессенджера -->
     <div id="app" class="page">
-        <!-- Панель контактов -->
         <div class="contacts-panel">
             <div class="panel-header">
                 <div class="logo">
@@ -55,11 +54,9 @@
                     <span>WOLF PACK</span>
                 </div>
             </div>
-            
             <div class="contacts-list" id="contactsList">
                 <div class="loading">Загрузка контактов...</div>
             </div>
-            
             <div class="user-profile">
                 <div class="profile-avatar" id="currentUserAvatar">?</div>
                 <div class="profile-info">
@@ -70,7 +67,6 @@
             </div>
         </div>
 
-        <!-- Основное окно чата -->
         <div class="chat-window">
             <div class="chat-header">
                 <div class="header-back" onclick="goBack()">
@@ -86,7 +82,6 @@
                     </div>
                 </div>
             </div>
-            
             <div class="messages-container" id="messagesContainer">
                 <div class="welcome-message">
                     <img src="wolf-logo.png" alt="Wolf" class="welcome-logo">
@@ -94,7 +89,6 @@
                     <div class="welcome-subtext">Войдите в систему для начала работы</div>
                 </div>
             </div>
-            
             <div class="input-container">
                 <div class="message-input-wrapper">
                     <input type="text" class="message-input" id="messageInput" placeholder="Напишите сообщение..." disabled>
@@ -109,7 +103,6 @@
     </div>
 
     <script>
-        // Firebase конфиг
         const firebaseConfig = {
             apiKey: "AIzaSyCzrpmm4ewVhq6-dmkr4i0xiGqqPSkNFZw",
             authDomain: "wolf-messendger.firebaseapp.com",
