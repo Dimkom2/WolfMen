@@ -18,6 +18,7 @@
     --msg-sent-text: #000000;
     --msg-received-bg: #1a1a1a;
     --msg-received-text: #ffffff;
+    --nav-height: 60px;
 }
 
 body {
@@ -198,12 +199,16 @@ body {
     left: 0;
     width: 100vw;
     height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .section {
     display: none;
-    height: 100%;
+    flex: 1;
     width: 100%;
+    overflow: hidden;
+    padding-bottom: var(--nav-height); /* чтобы не перекрывалось нижней панелью */
 }
 
 .section.active {
@@ -386,6 +391,7 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    height: 100%;
 }
 
 .chat-header {
@@ -587,7 +593,7 @@ body {
     display: flex;
     justify-content: space-around;
     align-items: center;
-    height: 60px;
+    height: var(--nav-height);
     z-index: 1000;
 }
 
@@ -602,6 +608,7 @@ body {
     font-size: 12px;
     cursor: pointer;
     transition: color 0.2s;
+    pointer-events: auto; /* гарантируем кликабельность */
 }
 
 .nav-btn.active {
@@ -618,6 +625,7 @@ body {
     justify-content: center;
     align-items: center;
     background: #050505;
+    padding-bottom: var(--nav-height);
 }
 
 .profile-page {
