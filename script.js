@@ -1,6 +1,19 @@
 const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
 const MAX_MESSAGE_LENGTH = 5000;
 
+// Функция экранирования HTML (защита от XSS)
+function escapeHtml(text) {
+    if (typeof text !== 'string') return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
 function encryptText(text, key) {
     const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
     const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
@@ -33,6 +46,53 @@ function generateChatKey(userId1, userId2) {
     return CryptoJS.SHA256(sortedIds + ENCRYPTION_SALT).toString();
 }
 
+// Функция для разбора команд с поддержкой кавычек
+function parseCommandArgs(input) {
+    const regex = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    const args = [];
+    let match;
+    while ((match = regex.exec(input)) !== null) {
+        args.push(match[1] ?? match[2] ?? match[3]);
+    }
+    return args;
+}
+
+// Функция показа тостов
+function showNotification(message, type = 'info') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('hide');
+        setTimeout(() => {
+            toast.remove();
+            if (container.children.length === 0) {
+                container.remove();
+            }
+        }, 300);
+    }, 3000);
+}
+
+// Функция определения цвета аватара на основе логина
+function getColorClass(login) {
+    let hash = 0;
+    if (typeof login === 'string') {
+        for (let i = 0; i < login.length; i++) {
+            hash = (hash * 31 + login.charCodeAt(i)) & 0xffffffff;
+        }
+    }
+    return 'color-' + (hash % 6);
+}
+
 const tg = window.Telegram?.WebApp;
 
 let currentUser = null;
@@ -40,7 +100,6 @@ let currentChat = null;
 let isChatOpen = false;
 let unsubscribeMessages = null;
 let db = null;
-let auth = null;
 
 function initApp() {
     console.log('🚀 Инициализация Wolf Messenger...');
@@ -53,17 +112,6 @@ function initApp() {
     
     try {
         db = firebase.firestore();
-        auth = firebase.auth();
-        
-        if (auth.setPersistence) {
-            auth.setPersistence(firebase.auth.Auth.Persistence.NONE)
-                .then(() => console.log('✅ Persistence NONE (сессия не сохраняется)'))
-                .catch((err) => console.warn('⚠️ Ошибка установки persistence:', err));
-        }
-        
-        db.enablePersistence()
-            .then(() => console.log('✅ Оффлайн поддержка включена'))
-            .catch((err) => console.warn('⚠️ Оффлайн режим не доступен:', err));
         console.log('✅ Firestore инициализирован');
     } catch (error) {
         console.error('❌ Ошибка инициализации Firestore:', error);
@@ -79,30 +127,13 @@ function initApp() {
     ensureAdminUsers().catch(console.error);
     ensureAdminContacts().catch(console.error);
     
-    auth.onAuthStateChanged(async (user) => {
-        if (user) {
-            const saved = sessionStorage.getItem('wolf_current_user');
-            if (saved && !currentUser) {
-                currentUser = JSON.parse(saved);
-                showPage('app');
-                await loadUserInterface();
-                updateUserStatus(true);
-            } else if (!currentUser) {
-                const restored = await restoreUserSession(user);
-                if (!restored) {
-                    await auth.signOut();
-                }
-            }
-        } else {
-            if (currentUser) {
-                await forceLogout();
-            } else {
-                showPage('login-page');
-            }
-        }
-    });
-    
-    if (!auth.currentUser) {
+    const saved = sessionStorage.getItem('wolf_current_user');
+    if (saved) {
+        currentUser = JSON.parse(saved);
+        showPage('app');
+        loadUserInterface().catch(console.error);
+        updateUserStatus(true).catch(console.error);
+    } else {
         showPage('login-page');
     }
 }
@@ -215,17 +246,7 @@ async function handleAddUserCommand(login, password) {
         };
         await db.collection('users').doc(chatId).set(userData);
         
-        const email = login + '@wolf.com';
-        try {
-            await auth.createUserWithEmailAndPassword(email, password);
-        } catch (authError) {
-            await db.collection('users').doc(chatId).delete();
-            if (authError.code === 'auth/email-already-in-use') {
-                return "❌ Email уже используется в Authentication. Возможно, пользователь уже был создан ранее.";
-            }
-            return "❌ Ошибка создания в Authentication: " + authError.message;
-        }
-        
+        // Добавляем контакты с администраторами
         const admins = await db.collection('users').where('isAdmin', '==', true).get();
         for (let adminDoc of admins.docs) {
             const adminData = adminDoc.data();
@@ -268,79 +289,11 @@ async function handleChangePassword(login, oldPass, newPass) {
             passwordHash: newHash
         });
         
-        const email = login + '@wolf.com';
-        const authUser = auth.currentUser;
-        if (authUser && authUser.email === email) {
-            await authUser.updatePassword(newPass);
-        } else {
-            if (!isSelf) {
-                return "⚠️ Смена пароля другого пользователя требует дополнительных прав. Пока доступно только для своего аккаунта.";
-            }
-        }
-        
         return `✅ Пароль для ${login} успешно изменён.`;
     } catch (error) {
         console.error('Ошибка смены пароля:', error);
         return "❌ Ошибка смены пароля: " + error.message;
     }
-}
-
-async function restoreUserSession(user) {
-    try {
-        const usersRef = db.collection('users');
-        let snapshot = await usersRef.where('authUid', '==', user.uid).get();
-        
-        if (snapshot.empty) {
-            const emailLogin = user.email ? user.email.split('@')[0] : null;
-            if (emailLogin) {
-                snapshot = await usersRef.where('login', '==', emailLogin).get();
-            }
-        }
-        
-        if (!snapshot.empty) {
-            const userDoc = snapshot.docs[0];
-            const userData = userDoc.data();
-            if (!userData.authUid) {
-                await userDoc.ref.update({ authUid: user.uid });
-            }
-            currentUser = {
-                login: userData.login,
-                name: userData.name,
-                chatId: userData.chatId,
-                isAdmin: userData.isAdmin || false,
-                uid: user.uid
-            };
-            sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
-            showPage('app');
-            await loadUserInterface();
-            updateUserStatus(true);
-            return true;
-        } else {
-            console.warn('Пользователь не найден в Firestore, выходим');
-            await auth.signOut();
-            showPage('login-page');
-            return false;
-        }
-    } catch (error) {
-        console.error('Ошибка восстановления сессии:', error);
-        await auth.signOut();
-        showPage('login-page');
-        return false;
-    }
-}
-
-async function forceLogout() {
-    if (currentUser) {
-        await updateUserStatus(false);
-    }
-    currentUser = null;
-    currentChat = null;
-    isChatOpen = false;
-    if (unsubscribeMessages) unsubscribeMessages();
-    sessionStorage.removeItem('wolf_current_user');
-    showPage('login-page');
-    document.getElementById('login').value = '';
-    document.getElementById('password').value = '';
 }
 
 async function checkPassword() {
@@ -356,8 +309,8 @@ async function checkPassword() {
     try {
         console.log(`🔐 Попытка входа: логин=${login}`);
         
-        if (!auth) {
-            errorMessage.textContent = 'Ошибка аутентификации';
+        if (!db) {
+            errorMessage.textContent = 'Ошибка подключения к базе данных';
             return;
         }
 
@@ -384,59 +337,11 @@ async function checkPassword() {
         }
         console.log('✅ Пароль совпадает с хэшем');
 
-        const email = login + '@wolf.com';
-        console.log('📧 Email для Auth:', email);
-        
-        let authUser;
-        try {
-            console.log('🔑 Пытаемся войти через signInWithEmailAndPassword...');
-            const userCredential = await auth.signInWithEmailAndPassword(email, password);
-            authUser = userCredential.user;
-            console.log('✅ Вход выполнен, UID:', authUser.uid);
-        } catch (authError) {
-            console.warn('⚠️ Ошибка Firebase Auth:', authError.code, authError.message);
-            
-            if (authError.code === 'auth/operation-not-allowed') {
-                errorMessage.textContent = 'Ошибка: вход через Email/Password не включён в Firebase. Включите его в консоли Firebase.';
-                return;
-            }
-            
-            if (authError.code === 'auth/user-not-found' || 
-                authError.code === 'auth/internal-error' || 
-                authError.message.includes('INVALID_LOGIN_CREDENTIALS')) {
-                
-                console.log('🆕 Пользователь не найден в Auth, создаём...');
-                try {
-                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                    authUser = userCredential.user;
-                    console.log('✅ Пользователь создан в Auth, UID:', authUser.uid);
-                } catch (createError) {
-                    console.error('❌ Ошибка создания пользователя:', createError);
-                    if (createError.code === 'auth/email-already-in-use') {
-                        errorMessage.textContent = 'Пользователь уже существует, но пароль не совпадает.';
-                    } else {
-                        errorMessage.textContent = 'Ошибка создания аккаунта: ' + createError.message;
-                    }
-                    return;
-                }
-            } else {
-                errorMessage.textContent = 'Ошибка входа: ' + authError.message;
-                return;
-            }
-        }
-        
-        if (!userData.authUid || userData.authUid !== authUser.uid) {
-            console.log('🔄 Обновляем authUid в Firestore...');
-            await userDoc.ref.update({ authUid: authUser.uid });
-            console.log('✅ authUid обновлён');
-        }
-        
         currentUser = {
             login: userData.login,
             name: userData.name,
             chatId: userData.chatId,
-            isAdmin: userData.isAdmin || false,
-            uid: authUser.uid
+            isAdmin: userData.isAdmin || false
         };
         
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
@@ -487,7 +392,9 @@ async function loadUserInterface() {
         return;
     }
     
-    document.getElementById('currentUserAvatar').textContent = currentUser.login;
+    const avatar = document.getElementById('currentUserAvatar');
+    avatar.textContent = currentUser.login;
+    avatar.className = 'profile-avatar ' + getColorClass(currentUser.login);
     document.getElementById('currentUserName').textContent = currentUser.name;
     document.getElementById('currentUserStatus').textContent = 'online';
     
@@ -624,11 +531,16 @@ function displayContacts(contacts) {
         const el = document.createElement('div');
         el.className = 'contact';
         el.dataset.userId = contact.login;
+        
+        const avatarClass = getColorClass(contact.login);
+        const statusClass = contact.isOnline ? 'status-online' : 'status-offline';
+        const statusText = contact.isOnline ? 'online' : 'offline';
+        
         el.innerHTML = `
-            <div class="contact-avatar ${contact.isOnline ? 'status-online' : 'status-offline'}">${contact.login}</div>
+            <div class="contact-avatar ${avatarClass} ${statusClass}">${escapeHtml(contact.login)}</div>
             <div class="contact-info">
-                <div class="contact-name">${contact.name}</div>
-                <div class="last-message">${contact.isOnline ? 'online' : 'offline'}</div>
+                <div class="contact-name">${escapeHtml(contact.name)}</div>
+                <div class="last-message ${statusText}">${statusText}</div>
             </div>
         `;
         el.addEventListener('click', () => openChat(contact));
@@ -638,11 +550,25 @@ function displayContacts(contacts) {
 
 function openChat(contact) {
     if (!currentUser) return showPage('login-page');
+    
+    if (currentChat && currentChat.chatId === contact.chatId && isChatOpen) {
+        return;
+    }
+    
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
+    
     currentChat = contact;
     isChatOpen = true;
-    document.getElementById('partnerAvatar').textContent = contact.login;
+    const avatar = document.getElementById('partnerAvatar');
+    avatar.textContent = contact.login;
+    avatar.className = 'partner-avatar ' + getColorClass(contact.login);
     document.getElementById('partnerName').textContent = contact.name;
-    document.getElementById('partnerStatus').textContent = contact.isOnline ? 'online' : 'offline';
+    const statusEl = document.getElementById('partnerStatus');
+    statusEl.textContent = contact.isOnline ? 'online' : 'offline';
+    statusEl.className = 'partner-status ' + (contact.isOnline ? 'online' : 'offline');
     document.getElementById('messageInput').disabled = false;
     document.querySelector('.send-button').disabled = false;
     loadChatHistory();
@@ -655,7 +581,12 @@ function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer || !currentUser || !currentChat) return;
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
-    if (unsubscribeMessages) unsubscribeMessages();
+    
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
+    
     try {
         const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
         const q = db.collection("messages").where('chatKey', '==', chatKey);
@@ -671,11 +602,11 @@ function loadChatHistory() {
                 messagesContainer.innerHTML = `
                     <div class="welcome-message">
                         <div class="welcome-text">Требуется создать индекс</div>
-                        <div class="welcome-subtext">Для работы чата нужно создать составной индекс в Firebase. Перейдите по <a href="https://console.firebase.google.com/project/${firebase.app().options.projectId}/database/firestore/indexes" target="_blank">ссылке</a> и создайте индекс для поля chatKey и timestamp.</div>
+                        <div class="welcome-subtext">Для работы чата нужно создать составной индекс в Firebase. Перейдите по <a href="https://console.firebase.google.com/project/${escapeHtml(firebase.app().options.projectId)}/database/firestore/indexes" target="_blank">ссылке</a> и создайте индекс для поля chatKey и timestamp.</div>
                     </div>
                 `;
             } else {
-                messagesContainer.innerHTML = `<div class="welcome-message">Ошибка загрузки: ${error.message}</div>`;
+                messagesContainer.innerHTML = `<div class="welcome-message">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
             }
         });
     } catch (error) {
@@ -696,7 +627,7 @@ async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
     if (text.length > MAX_MESSAGE_LENGTH) {
-        alert(`Сообщение слишком длинное (максимум ${MAX_MESSAGE_LENGTH} символов)`);
+        showNotification(`Сообщение слишком длинное (максимум ${MAX_MESSAGE_LENGTH} символов)`, 'warning');
         return;
     }
     if (handleCommand(text)) { input.value = ''; return; }
@@ -705,23 +636,24 @@ async function sendMessage() {
     try {
         const userDoc = await db.collection('users').doc(currentChat.chatId).get();
         if (userDoc.exists) {
-            toUid = userDoc.data().authUid;
+            toUid = userDoc.data().chatId;
         } else {
             console.error('Не найден документ получателя');
-            alert('Ошибка: не удалось определить получателя');
+            showNotification('Ошибка: не удалось определить получателя', 'error');
             return;
         }
     } catch (error) {
         console.error('Ошибка получения toUid:', error);
-        alert('Ошибка при отправке');
+        showNotification('Ошибка при отправке', 'error');
         return;
     }
     
+    let tempId = null;
     isSending = true;
     try {
         const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
         const encrypted = encryptText(text, chatKey);
-        const tempId = 'temp_' + Date.now();
+        tempId = 'temp_' + Date.now();
         addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
         input.value = '';
         
@@ -730,7 +662,7 @@ async function sendMessage() {
             fromName: currentUser.name,
             to: currentChat.chatId,
             toName: currentChat.name,
-            fromUid: currentUser.uid,
+            fromUid: currentUser.chatId,
             toUid: toUid,
             encrypted: encrypted,
             chatKey: chatKey,
@@ -740,11 +672,14 @@ async function sendMessage() {
         if (tempEl) tempEl.remove();
     } catch (error) {
         console.error('Ошибка отправки:', error);
-        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
-        if (tempEl) {
-            tempEl.classList.add('error');
-            tempEl.querySelector('.message-text').textContent = '❌ Ошибка: ' + text;
+        if (tempId) {
+            const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+            if (tempEl) {
+                tempEl.classList.add('error');
+                tempEl.querySelector('.message-text').textContent = '❌ Ошибка: ' + text;
+            }
         }
+        showNotification('Не удалось отправить сообщение', 'error');
     } finally {
         isSending = false;
     }
@@ -770,7 +705,7 @@ function addMessageToUI(text, type, time, id, scroll = true) {
     const div = document.createElement('div');
     div.className = `message ${type}`;
     div.dataset.messageId = id;
-    div.innerHTML = `<div class="message-content"><div class="message-text">${text}</div><div class="message-time">${time}</div></div>`;
+    div.innerHTML = `<div class="message-content"><div class="message-text">${escapeHtml(text)}</div><div class="message-time">${time}</div></div>`;
     container.appendChild(div);
     if (scroll) scrollToBottom();
 }
@@ -797,7 +732,7 @@ function showWelcomeMessage() {
     const container = document.getElementById('messagesContainer');
     if (!container) return;
     const name = currentChat ? currentChat.name : 'контактом';
-    container.innerHTML = `<div class="welcome-message"><img src="wolf-logo.png" alt="Wolf" class="welcome-logo"><div class="welcome-text">Начните общение с ${name}</div><div class="welcome-subtext">Сообщения защищены шифрованием</div></div>`;
+    container.innerHTML = `<div class="welcome-message"><img src="wolf-logo.png" alt="Wolf" class="welcome-logo"><div class="welcome-text">Начните общение с ${escapeHtml(name)}</div><div class="welcome-subtext">Сообщения защищены шифрованием</div></div>`;
 }
 
 function showPage(pageId) {
@@ -823,6 +758,11 @@ function hideChatWindow() {
     isChatOpen = false;
     document.querySelector('.contacts-panel').style.display = 'flex';
     document.querySelector('.chat-window').style.display = 'none';
+    
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
 }
 
 function initInterface() {
@@ -834,6 +774,9 @@ function initInterface() {
             if (window.innerWidth <= 768 && currentChat) {
                 isChatOpen = true;
                 showChatWindow();
+                if (!unsubscribeMessages) {
+                    loadChatHistory();
+                }
             }
         });
     }
@@ -870,54 +813,67 @@ function handleResize() {
 }
 
 function handleCommand(message) {
-    if (['/soglasie','/согласие','/соглашение'].includes(message)) {
+    if (['/soglasie','/согласие','/соглашение'].includes(message.trim().toLowerCase())) {
         showAgreement();
         return true;
     }
-    if (message.startsWith('/add ')) {
-        if (currentUser?.isAdmin) handleAddCommand(message);
-        else alert('Только администраторы могут добавлять контакты');
-        return true;
-    }
-    if (message.startsWith('/addk ')) {
+    if (message.startsWith('/addk')) {
         if (!currentUser?.isAdmin) {
-            alert('Только администраторы могут создавать пользователей');
+            showNotification('Только администраторы могут создавать пользователей', 'error');
             return true;
         }
-        const parts = message.split(' ');
-        if (parts.length !== 3) {
-            alert('Использование: /addk логин пароль');
+        const args = parseCommandArgs(message);
+        if (args.length !== 3) {
+            showNotification('Использование: /addk логин пароль', 'warning');
             return true;
         }
-        const login = parts[1];
-        const password = parts[2];
-        handleAddUserCommand(login, password).then(msg => alert(msg));
+        const login = args[1];
+        const password = args[2];
+        handleAddUserCommand(login, password).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
         return true;
     }
-    if (message.startsWith('/changepass ')) {
-        const parts = message.split(' ');
-        if (parts.length !== 4) {
-            alert('Использование: /changepass логин старый_пароль новый_пароль');
+    if (message.startsWith('/changepass')) {
+        const args = parseCommandArgs(message);
+        if (args.length !== 4) {
+            showNotification('Использование: /changepass логин старый_пароль новый_пароль', 'warning');
             return true;
         }
-        const login = parts[1];
-        const oldPass = parts[2];
-        const newPass = parts[3];
-        handleChangePassword(login, oldPass, newPass).then(msg => alert(msg));
+        const login = args[1];
+        const oldPass = args[2];
+        const newPass = args[3];
+        handleChangePassword(login, oldPass, newPass).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    if (message.startsWith('/add')) {
+        if (!currentUser?.isAdmin) {
+            showNotification('Только администраторы могут добавлять контакты', 'error');
+            return true;
+        }
+        handleAddCommand(message);
         return true;
     }
     return false;
 }
 
 async function handleAddCommand(message) {
-    const parts = message.split(' ').filter(p => p);
-    if (parts.length !== 3) return alert('Использование: /add логин1 логин2');
-    const [_, login1, login2] = parts;
-    if (login1 === login2) return alert('Нельзя добавить себя к себе');
+    const args = parseCommandArgs(message);
+    if (args.length !== 3) {
+        showNotification('Использование: /add логин1 логин2', 'warning');
+        return;
+    }
+    const login1 = args[1];
+    const login2 = args[2];
+    if (login1 === login2) {
+        showNotification('Нельзя добавить себя к себе', 'error');
+        return;
+    }
     
     const user1Snap = await db.collection('users').where('login','==',login1).get();
     const user2Snap = await db.collection('users').where('login','==',login2).get();
-    if (user1Snap.empty || user2Snap.empty) return alert('Один из логинов не существует');
+    if (user1Snap.empty || user2Snap.empty) {
+        showNotification('Один из логинов не существует', 'error');
+        return;
+    }
     
     const acc1 = user1Snap.docs[0].data();
     const acc2 = user2Snap.docs[0].data();
@@ -927,12 +883,12 @@ async function handleAddCommand(message) {
         const added2 = await addContact(acc2.chatId, acc1.chatId);
         if (currentUser.chatId === acc1.chatId || currentUser.chatId === acc2.chatId) loadContacts();
         if (added1 || added2) {
-            alert(`Контакты ${login1} и ${login2} теперь видят друг друга`);
+            showNotification(`Контакты ${login1} и ${login2} теперь видят друг друга`, 'success');
         } else {
-            alert('Эти контакты уже были добавлены');
+            showNotification('Эти контакты уже были добавлены', 'info');
         }
     } catch (e) {
-        alert('Ошибка');
+        showNotification('Ошибка при добавлении контактов', 'error');
     }
 }
 
@@ -1033,11 +989,24 @@ function showAgreement() {
 }
 
 async function logout() {
-    await forceLogout();
+    if (currentUser) {
+        await updateUserStatus(false).catch(console.error);
+    }
+    currentUser = null;
+    currentChat = null;
+    isChatOpen = false;
+    if (unsubscribeMessages) {
+        unsubscribeMessages();
+        unsubscribeMessages = null;
+    }
+    sessionStorage.removeItem('wolf_current_user');
+    showPage('login-page');
+    document.getElementById('login').value = '';
+    document.getElementById('password').value = '';
 }
 
 window.addEventListener('beforeunload', () => {
-    if (currentUser) updateUserStatus(false);
+    if (currentUser) updateUserStatus(false).catch(console.error);
 });
 
 document.addEventListener('DOMContentLoaded', () => {
