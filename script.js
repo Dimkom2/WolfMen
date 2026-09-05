@@ -195,9 +195,7 @@ function initApp() {
         tg.ready();
     }
     
-    // Однократная очистка старых данных
     cleanupOldData().catch(console.error);
-    
     initInterface();
     
     ensureAdminUsers().catch(console.error);
@@ -238,6 +236,7 @@ async function ensureAdminUsers() {
             isAdmin: user.isAdmin,
             salt: salt,
             passwordHash: passwordHash,
+            coins: 0,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         console.log(`✅ Создан администратор ${user.login}`);
@@ -294,6 +293,126 @@ async function addContactIfMissing(userId, contactId) {
     return false;
 }
 
+// Команда: сделать пользователя админом (только 001 и 247)
+async function handleAdminCommand(login) {
+    if (!currentUser || !['001', '247'].includes(currentUser.login)) {
+        return "❌ Недостаточно прав.";
+    }
+    try {
+        const userSnap = await db.collection('users').where('login', '==', login).get();
+        if (userSnap.empty) return "❌ Пользователь не найден.";
+        const userDoc = userSnap.docs[0];
+        await userDoc.ref.update({ isAdmin: true });
+        return `✅ Пользователь ${login} теперь администратор.`;
+    } catch (error) {
+        console.error('Ошибка:', error);
+        return "❌ Ошибка при назначении админом.";
+    }
+}
+
+// Команда: установить произвольную роль (только 001 и 247)
+async function handleSetRole(login, role) {
+    if (!currentUser || !['001', '247'].includes(currentUser.login)) {
+        return "❌ Недостаточно прав.";
+    }
+    
+    role = role.toLowerCase();
+    const allowedRoles = ['admin', 'user'];
+    if (!allowedRoles.includes(role)) {
+        return "❌ Допустимые роли: admin, user";
+    }
+    
+    try {
+        const userSnap = await db.collection('users').where('login', '==', login).get();
+        if (userSnap.empty) return "❌ Пользователь не найден.";
+        const userDoc = userSnap.docs[0];
+        await userDoc.ref.update({ isAdmin: role === 'admin' });
+        return `✅ Роль пользователя ${login} установлена как ${role}.`;
+    } catch (error) {
+        console.error('Ошибка:', error);
+        return "❌ Ошибка при установке роли.";
+    }
+}
+
+// Команда: рассылка сообщения всем (только админы)
+async function handleBroadcastMessage(text) {
+    if (!currentUser || !currentUser.isAdmin) {
+        return "❌ Только администраторы могут отправлять рассылку.";
+    }
+    if (!text) return "❌ Использование: /ms текст сообщения";
+    try {
+        await db.collection('broadcasts').add({
+            from: currentUser.login,
+            fromName: currentUser.name,
+            text: text,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return "✅ Сообщение отправлено всем сотрудникам.";
+    } catch (error) {
+        console.error('Ошибка:', error);
+        return "❌ Ошибка при отправке рассылки.";
+    }
+}
+
+// Команда: начислить коины (только 001 и 247)
+async function handleAddCoins(login, amount) {
+    if (!currentUser || !['001', '247'].includes(currentUser.login)) {
+        return "❌ Недостаточно прав.";
+    }
+    const coins = parseInt(amount);
+    if (isNaN(coins) || coins <= 0) return "❌ Укажите положительное количество коинов.";
+    try {
+        const userSnap = await db.collection('users').where('login', '==', login).get();
+        if (userSnap.empty) return "❌ Пользователь не найден.";
+        const userDoc = userSnap.docs[0];
+        const currentCoins = userDoc.data().coins || 0;
+        await userDoc.ref.update({ coins: currentCoins + coins });
+        return `✅ Начислено ${coins} WC пользователю ${login}. Новый баланс: ${currentCoins + coins}.`;
+    } catch (error) {
+        console.error('Ошибка:', error);
+        return "❌ Ошибка при начислении коинов.";
+    }
+}
+
+// Команда: перевести коины (все, минимум 10000)
+async function handlePayCoins(targetLogin, amount) {
+    if (!currentUser) return "❌ Вы не авторизованы.";
+    const coins = parseInt(amount);
+    if (isNaN(coins) || coins <= 0) return "❌ Укажите положительное количество коинов.";
+    if (coins < 10000) return "❌ Минимальный перевод 10 000 WC.";
+    if (targetLogin === currentUser.login) return "❌ Нельзя перевести самому себе.";
+    
+    try {
+        const targetSnap = await db.collection('users').where('login', '==', targetLogin).get();
+        if (targetSnap.empty) return "❌ Получатель не найден.";
+        
+        const senderRef = db.collection('users').doc(currentUser.chatId);
+        const targetRef = targetSnap.docs[0].ref;
+        
+        await db.runTransaction(async (transaction) => {
+            const senderDoc = await transaction.get(senderRef);
+            const targetDoc = await transaction.get(targetRef);
+            
+            const senderCoins = senderDoc.data()?.coins || 0;
+            const targetCoins = targetDoc.data()?.coins || 0;
+            
+            if (senderCoins < coins) {
+                throw new Error('❌ Недостаточно коинов для перевода.');
+            }
+            
+            transaction.update(senderRef, { coins: senderCoins - coins });
+            transaction.update(targetRef, { coins: targetCoins + coins });
+        });
+        
+        return `✅ Переведено ${coins} WC пользователю ${targetLogin}.`;
+    } catch (error) {
+        console.error('Ошибка перевода:', error);
+        if (error.message.includes('Недостаточно')) return error.message;
+        return "❌ Ошибка при переводе коинов.";
+    }
+}
+
+// Команда: создать пользователя (уже с coins)
 async function handleAddUserCommand(login, password) {
     if (!currentUser || !currentUser.isAdmin) {
         return "❌ Только администраторы могут создавать пользователей.";
@@ -318,6 +437,7 @@ async function handleAddUserCommand(login, password) {
             isAdmin: false,
             salt: salt,
             passwordHash: passwordHash,
+            coins: 0,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         await db.collection('users').doc(chatId).set(userData);
@@ -337,6 +457,7 @@ async function handleAddUserCommand(login, password) {
     }
 }
 
+// Смена пароля
 async function handleChangePassword(login, oldPass, newPass) {
     if (!currentUser) return "❌ Вы не авторизованы.";
     
@@ -417,7 +538,8 @@ async function checkPassword() {
             login: userData.login,
             name: userData.name,
             chatId: userData.chatId,
-            isAdmin: userData.isAdmin || false
+            isAdmin: userData.isAdmin || false,
+            coins: userData.coins || 0
         };
         
         sessionStorage.setItem('wolf_current_user', JSON.stringify(currentUser));
@@ -468,15 +590,60 @@ async function loadUserInterface() {
         return;
     }
     
-    const avatar = document.getElementById('currentUserAvatar');
-    avatar.textContent = currentUser.login;
-    avatar.className = 'profile-avatar ' + getColorClass(currentUser.login);
+    // Обновляем нижнюю часть с профилем
+    document.getElementById('currentUserAvatar').textContent = currentUser.login;
+    document.getElementById('currentUserAvatar').className = 'profile-avatar ' + getColorClass(currentUser.login);
     document.getElementById('currentUserName').textContent = currentUser.name;
     document.getElementById('currentUserStatus').textContent = 'online';
     
     await checkUserConsent();
     
     loadContacts();
+    loadProfileData();
+    checkBroadcasts();
+}
+
+// Загрузка данных профиля
+async function loadProfileData() {
+    if (!currentUser) return;
+    
+    document.getElementById('profileAvatar').textContent = currentUser.login;
+    document.getElementById('profileAvatar').className = 'profile-avatar-large ' + getColorClass(currentUser.login);
+    document.getElementById('profileName').textContent = currentUser.name;
+    document.getElementById('profileLogin').textContent = '@' + currentUser.login;
+    document.getElementById('profileRole').textContent = currentUser.isAdmin ? 'Администратор' : 'Пользователь';
+    
+    // Загружаем актуальный баланс из Firestore
+    try {
+        const userDoc = await db.collection('users').doc(currentUser.chatId).get();
+        if (userDoc.exists) {
+            const coins = userDoc.data().coins || 0;
+            document.getElementById('profileCoins').textContent = coins.toLocaleString();
+            currentUser.coins = coins; // обновляем
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки баланса:', error);
+        document.getElementById('profileCoins').textContent = currentUser.coins || 0;
+    }
+}
+
+// Проверка новых рассылок
+async function checkBroadcasts() {
+    try {
+        const lastSeen = localStorage.getItem('wolf_last_broadcast_time') || '1970-01-01';
+        const snapshot = await db.collection('broadcasts')
+            .where('timestamp', '>', new Date(lastSeen))
+            .orderBy('timestamp', 'asc')
+            .get();
+        
+        if (!snapshot.empty) {
+            const latest = snapshot.docs[snapshot.docs.length - 1].data();
+            showNotification(`📢 ${latest.fromName}: ${latest.text}`, 'info');
+            localStorage.setItem('wolf_last_broadcast_time', new Date().toISOString());
+        }
+    } catch (error) {
+        console.error('Ошибка проверки рассылок:', error);
+    }
 }
 
 function showConsentModal() {
@@ -666,7 +833,6 @@ async function loadChatHistory() {
     try {
         const chatKey = await getChatKey(currentUser.chatId, currentChat.chatId);
         
-        // идентификатор чата для фильтрации
         const chatId = 'chat_' + [currentUser.chatId, currentChat.chatId].sort().join('_');
         const q = db.collection("messages").where('chatKey', '==', chatId);
         unsubscribeMessages = q.onSnapshot((snapshot) => {
@@ -853,6 +1019,67 @@ function hideChatWindow() {
     }
 }
 
+function switchTab(tab) {
+    const messagesSection = document.getElementById('messages-section');
+    const profileSection = document.getElementById('profile-section');
+    const navButtons = document.querySelectorAll('.nav-btn');
+    
+    if (tab === 'messages') {
+        messagesSection.classList.add('active');
+        profileSection.classList.remove('active');
+    } else {
+        profileSection.classList.add('active');
+        messagesSection.classList.remove('active');
+    }
+    
+    navButtons.forEach(btn => {
+        if (btn.dataset.tab === tab) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+    
+    if (tab === 'profile') {
+        loadProfileData();
+    }
+}
+
+function showChangePasswordModal() {
+    if (!currentUser) return;
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-title">Смена пароля</div>
+            <input type="password" id="oldPass" class="modal-input" placeholder="Старый пароль">
+            <input type="password" id="newPass" class="modal-input" placeholder="Новый пароль">
+            <input type="password" id="confirmPass" class="modal-input" placeholder="Повторите новый пароль">
+            <button class="modal-btn" onclick="submitPasswordChange()">Сменить</button>
+            <button class="modal-btn secondary" onclick="this.closest('.modal-overlay').remove()">Отмена</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+async function submitPasswordChange() {
+    const oldPass = document.getElementById('oldPass').value;
+    const newPass = document.getElementById('newPass').value;
+    const confirmPass = document.getElementById('confirmPass').value;
+    
+    if (newPass !== confirmPass) {
+        showNotification('Пароли не совпадают', 'error');
+        return;
+    }
+    
+    if (!newPass || newPass.length < 6) {
+        showNotification('Новый пароль должен быть не короче 6 символов', 'error');
+        return;
+    }
+    
+    const result = await handleChangePassword(currentUser.login, oldPass, newPass);
+    showNotification(result, result.startsWith('✅') ? 'success' : 'error');
+    document.querySelector('.modal-overlay')?.remove();
+}
+
 function initInterface() {
     const input = document.getElementById('messageInput');
     if (input) {
@@ -901,45 +1128,97 @@ function handleResize() {
 }
 
 function handleCommand(message) {
-    if (['/soglasie','/согласие','/соглашение'].includes(message.trim().toLowerCase())) {
+    const trimmed = message.trim();
+    
+    if (['/soglasie','/согласие','/соглашение'].includes(trimmed.toLowerCase())) {
         showAgreement();
         return true;
     }
-    if (message.startsWith('/addk')) {
+    
+    if (trimmed.startsWith('/admin')) {
+        const args = parseCommandArgs(trimmed);
+        if (args.length !== 2) {
+            showNotification('Использование: /admin логин', 'warning');
+            return true;
+        }
+        handleAdminCommand(args[1]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    
+    if (trimmed.startsWith('/setrole')) {
+        const args = parseCommandArgs(trimmed);
+        if (args.length !== 3) {
+            showNotification('Использование: /setrole логин роль (admin или user)', 'warning');
+            return true;
+        }
+        handleSetRole(args[1], args[2]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    
+    if (trimmed.startsWith('/ms')) {
+        const args = parseCommandArgs(trimmed);
+        if (args.length < 2) {
+            showNotification('Использование: /ms текст сообщения', 'warning');
+            return true;
+        }
+        const text = args.slice(1).join(' ');
+        handleBroadcastMessage(text).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    
+    if (trimmed.startsWith('/addc')) {
+        const args = parseCommandArgs(trimmed);
+        if (args.length !== 3) {
+            showNotification('Использование: /addc логин кол-во', 'warning');
+            return true;
+        }
+        handleAddCoins(args[1], args[2]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    
+    if (trimmed.startsWith('/pay')) {
+        const args = parseCommandArgs(trimmed);
+        if (args.length !== 3) {
+            showNotification('Использование: /pay логин кол-во', 'warning');
+            return true;
+        }
+        handlePayCoins(args[1], args[2]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        return true;
+    }
+    
+    if (trimmed.startsWith('/addk')) {
         if (!currentUser?.isAdmin) {
             showNotification('Только администраторы могут создавать пользователей', 'error');
             return true;
         }
-        const args = parseCommandArgs(message);
+        const args = parseCommandArgs(trimmed);
         if (args.length !== 3) {
             showNotification('Использование: /addk логин пароль', 'warning');
             return true;
         }
-        const login = args[1];
-        const password = args[2];
-        handleAddUserCommand(login, password).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        handleAddUserCommand(args[1], args[2]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
         return true;
     }
-    if (message.startsWith('/changepass')) {
-        const args = parseCommandArgs(message);
+    
+    if (trimmed.startsWith('/changepass')) {
+        const args = parseCommandArgs(trimmed);
         if (args.length !== 4) {
             showNotification('Использование: /changepass логин старый_пароль новый_пароль', 'warning');
             return true;
         }
-        const login = args[1];
-        const oldPass = args[2];
-        const newPass = args[3];
-        handleChangePassword(login, oldPass, newPass).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
+        handleChangePassword(args[1], args[2], args[3]).then(msg => showNotification(msg, msg.startsWith('✅') ? 'success' : 'error'));
         return true;
     }
-    if (message.startsWith('/add')) {
+    
+    if (trimmed.startsWith('/add')) {
         if (!currentUser?.isAdmin) {
             showNotification('Только администраторы могут добавлять контакты', 'error');
             return true;
         }
-        handleAddCommand(message);
+        handleAddCommand(trimmed);
         return true;
     }
+    
     return false;
 }
 
