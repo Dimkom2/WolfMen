@@ -1,4 +1,3 @@
-const ENCRYPTION_SALT = "WolfPackSecretSalt2026!";
 const MAX_MESSAGE_LENGTH = 5000;
 
 // Функция экранирования HTML (защита от XSS)
@@ -14,18 +13,31 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => map[m]);
 }
 
-function encryptText(text, key) {
-    const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
-    const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
-    const encrypted = CryptoJS.AES.encrypt(text, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
-    return encrypted.toString();
+// Функция шифрования текста с случайным IV
+function encryptText(text, keyHex) {
+    const key = CryptoJS.enc.Hex.parse(keyHex);
+    const iv = CryptoJS.lib.WordArray.random(16);
+    const encrypted = CryptoJS.AES.encrypt(text, key, {
+        iv: iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+    });
+    return {
+        ciphertext: encrypted.toString(),
+        iv: iv.toString(CryptoJS.enc.Hex)
+    };
 }
 
-function decryptText(encryptedText, key) {
+// Функция дешифрования текста
+function decryptText(encryptedData, keyHex) {
     try {
-        const secretKey = CryptoJS.enc.Utf8.parse(key.padEnd(32, '0').slice(0, 32));
-        const iv = CryptoJS.enc.Utf8.parse('1234567890123456');
-        const decrypted = CryptoJS.AES.decrypt(encryptedText, secretKey, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+        const key = CryptoJS.enc.Hex.parse(keyHex);
+        const iv = CryptoJS.enc.Hex.parse(encryptedData.iv);
+        const decrypted = CryptoJS.AES.decrypt(encryptedData.ciphertext, key, {
+            iv: iv,
+            mode: CryptoJS.mode.CBC,
+            padding: CryptoJS.pad.Pkcs7
+        });
         return decrypted.toString(CryptoJS.enc.Utf8);
     } catch (e) {
         console.error('Ошибка расшифровки:', e);
@@ -41,9 +53,22 @@ function generateSalt() {
     return CryptoJS.lib.WordArray.random(16).toString();
 }
 
-function generateChatKey(userId1, userId2) {
-    const sortedIds = [userId1, userId2].sort().join('_');
-    return CryptoJS.SHA256(sortedIds + ENCRYPTION_SALT).toString();
+// Функция получения или создания случайного ключа чата
+async function getChatKey(user1, user2) {
+    const ids = [user1, user2].sort();
+    const docId = ids.join('_');
+    const keyRef = db.collection('chat_keys').doc(docId);
+    const doc = await keyRef.get();
+    if (doc.exists && doc.data().key) {
+        return doc.data().key;
+    } else {
+        const key = CryptoJS.lib.WordArray.random(32).toString(CryptoJS.enc.Hex);
+        await keyRef.set({
+            key: key,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return key;
+    }
 }
 
 // Функция для разбора команд с поддержкой кавычек
@@ -93,6 +118,54 @@ function getColorClass(login) {
     return 'color-' + (hash % 6);
 }
 
+// Функция очистки устаревших данных (однократно)
+async function cleanupOldData() {
+    const cleanupFlag = localStorage.getItem('wolf_cleanup_done');
+    if (cleanupFlag === 'true') {
+        console.log('🧹 Очистка уже выполнена ранее. Пропускаем.');
+        return;
+    }
+
+    console.log('🧹 Начинаю очистку старых сообщений и ключей...');
+    showNotification('Очистка старых данных...', 'info');
+
+    const batchSize = 500;
+
+    async function deleteCollection(collectionName) {
+        const snapshot = await db.collection(collectionName).get();
+        if (snapshot.empty) {
+            console.log(`Коллекция ${collectionName} пуста.`);
+            return;
+        }
+        let batch = db.batch();
+        let count = 0;
+        for (const doc of snapshot.docs) {
+            batch.delete(doc.ref);
+            count++;
+            if (count % batchSize === 0) {
+                await batch.commit();
+                batch = db.batch();
+                console.log(`Удалено ${count} из ${collectionName}...`);
+            }
+        }
+        if (count % batchSize !== 0) {
+            await batch.commit();
+        }
+        console.log(`✅ Коллекция ${collectionName} полностью очищена (${count} документов).`);
+    }
+
+    try {
+        await deleteCollection('messages');
+        await deleteCollection('chat_keys');
+        localStorage.setItem('wolf_cleanup_done', 'true');
+        showNotification('Очистка завершена!', 'success');
+        console.log('🎉 Очистка завершена. Можно пользоваться.');
+    } catch (error) {
+        console.error('❌ Ошибка при очистке:', error);
+        showNotification('Ошибка при очистке данных', 'error');
+    }
+}
+
 const tg = window.Telegram?.WebApp;
 
 let currentUser = null;
@@ -121,6 +194,9 @@ function initApp() {
         tg.expand();
         tg.ready();
     }
+    
+    // Однократная очистка старых данных
+    cleanupOldData().catch(console.error);
     
     initInterface();
     
@@ -577,7 +653,7 @@ function openChat(contact) {
     document.querySelector(`[data-user-id="${contact.login}"]`)?.classList.add('active');
 }
 
-function loadChatHistory() {
+async function loadChatHistory() {
     const messagesContainer = document.getElementById('messagesContainer');
     if (!messagesContainer || !currentUser || !currentChat) return;
     messagesContainer.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
@@ -588,8 +664,11 @@ function loadChatHistory() {
     }
     
     try {
-        const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
-        const q = db.collection("messages").where('chatKey', '==', chatKey);
+        const chatKey = await getChatKey(currentUser.chatId, currentChat.chatId);
+        
+        // идентификатор чата для фильтрации
+        const chatId = 'chat_' + [currentUser.chatId, currentChat.chatId].sort().join('_');
+        const q = db.collection("messages").where('chatKey', '==', chatId);
         unsubscribeMessages = q.onSnapshot((snapshot) => {
             const msgs = [];
             snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
@@ -651,12 +730,14 @@ async function sendMessage() {
     let tempId = null;
     isSending = true;
     try {
-        const chatKey = generateChatKey(currentUser.chatId, currentChat.chatId);
-        const encrypted = encryptText(text, chatKey);
+        const chatKey = await getChatKey(currentUser.chatId, currentChat.chatId);
+        const encryptedData = encryptText(text, chatKey);
+        
         tempId = 'temp_' + Date.now();
         addMessageToUI(text, 'sent', getCurrentTime(), tempId, true);
         input.value = '';
         
+        const chatId = 'chat_' + [currentUser.chatId, currentChat.chatId].sort().join('_');
         await db.collection("messages").add({
             from: currentUser.chatId,
             fromName: currentUser.name,
@@ -664,8 +745,9 @@ async function sendMessage() {
             toName: currentChat.name,
             fromUid: currentUser.chatId,
             toUid: toUid,
-            encrypted: encrypted,
-            chatKey: chatKey,
+            encrypted: encryptedData.ciphertext,
+            iv: encryptedData.iv,
+            chatKey: chatId,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
@@ -692,7 +774,13 @@ function displayMessages(messages, chatKey) {
     messages.forEach(msg => {
         const type = msg.from === currentUser.chatId ? 'sent' : 'received';
         const time = msg.timestamp ? formatFirebaseTime(msg.timestamp) : getCurrentTime();
-        const decrypted = decryptText(msg.encrypted, chatKey);
+        let decrypted;
+        if (msg.iv) {
+            decrypted = decryptText({ ciphertext: msg.encrypted, iv: msg.iv }, chatKey);
+        } else {
+            // Обратная совместимость (не используется после очистки)
+            decrypted = decryptText({ ciphertext: msg.encrypted, iv: '12345678901234567890123456789012' }, chatKey);
+        }
         addMessageToUI(decrypted, type, time, msg.id, false);
     });
     scrollToBottom();
