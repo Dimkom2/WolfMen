@@ -613,16 +613,58 @@ async function loadProfileData() {
     document.getElementById('profileLogin').textContent = '@' + currentUser.login;
     document.getElementById('profileRole').textContent = currentUser.isAdmin ? 'Администратор' : 'Пользователь';
     
-    // Загружаем актуальный баланс из Firestore
+    // Загружаем актуальный баланс и детали
     try {
         const userDoc = await db.collection('users').doc(currentUser.chatId).get();
         if (userDoc.exists) {
-            const coins = userDoc.data().coins || 0;
+            const userData = userDoc.data();
+            const coins = userData.coins || 0;
             document.getElementById('profileCoins').textContent = coins.toLocaleString();
-            currentUser.coins = coins; // обновляем
+            currentUser.coins = coins;
+            
+            // Заполняем детали
+            const detailsContainer = document.getElementById('profileDetails');
+            if (detailsContainer) {
+                const formatDate = (timestamp) => {
+                    if (timestamp && timestamp.toDate) {
+                        return timestamp.toDate().toLocaleDateString('ru-RU');
+                    }
+                    return 'Неизвестно';
+                };
+                
+                const createdAt = userData.createdAt ? formatDate(userData.createdAt) : 'Неизвестно';
+                const lastSeen = userData.lastSeen ? formatDate(userData.lastSeen) : 'Никогда';
+                
+                // Получаем количество контактов
+                const contactDoc = await db.collection('contacts').doc(currentUser.chatId).get();
+                const contactsCount = contactDoc.exists ? (contactDoc.data().contacts?.length || 0) : 0;
+                
+                detailsContainer.innerHTML = `
+                    <div class="detail-item">
+                        <span class="detail-label">Логин</span>
+                        <span class="detail-value">${escapeHtml(currentUser.login)}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">ID чата</span>
+                        <span class="detail-value">${escapeHtml(currentUser.chatId)}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Дата регистрации</span>
+                        <span class="detail-value">${escapeHtml(createdAt)}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Последний визит</span>
+                        <span class="detail-value">${escapeHtml(lastSeen)}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Контактов</span>
+                        <span class="detail-value">${contactsCount}</span>
+                    </div>
+                `;
+            }
         }
     } catch (error) {
-        console.error('Ошибка загрузки баланса:', error);
+        console.error('Ошибка загрузки баланса и деталей:', error);
         document.getElementById('profileCoins').textContent = currentUser.coins || 0;
     }
 }
@@ -990,6 +1032,11 @@ function showWelcomeMessage() {
 }
 
 function showPage(pageId) {
+    // Сбрасываем прокрутку, чтобы не оставалась позиция от предыдущего экрана
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(pageId).classList.add('active');
     handleResize();
@@ -1370,6 +1417,10 @@ async function logout() {
     showPage('login-page');
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
+    // Убираем фокус с полей
+    if (document.activeElement) document.activeElement.blur();
+    // Прокрутка вверх
+    window.scrollTo(0, 0);
 }
 
 window.addEventListener('beforeunload', () => {
