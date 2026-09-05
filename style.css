@@ -624,6 +624,8 @@ body {
     max-width: 400px;
     padding: 20px;
     text-align: center;
+    overflow-y: auto; /* если контента много */
+    max-height: 100%;
 }
 
 .profile-header {
@@ -673,7 +675,7 @@ body {
     border: 1px solid #222;
     border-radius: 12px;
     padding: 20px;
-    margin-bottom: 30px;
+    margin-bottom: 20px;
 }
 
 .coins-label {
@@ -687,6 +689,37 @@ body {
     font-size: 36px;
     font-weight: 700;
     color: #fff;
+}
+
+/* Детали профиля */
+.profile-details {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 14px;
+}
+
+.detail-item:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    color: #666;
+}
+
+.detail-value {
+    color: #fff;
+    font-weight: 500;
 }
 
 .profile-actions {
