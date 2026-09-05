@@ -1032,13 +1032,21 @@ function showWelcomeMessage() {
 }
 
 function showPage(pageId) {
-    // Сбрасываем прокрутку, чтобы не оставалась позиция от предыдущего экрана
+    // Скрываем все страницы принудительно
+    document.querySelectorAll('.page').forEach(p => {
+        p.style.display = 'none';
+        p.classList.remove('active');
+    });
+    // Показываем нужную
+    const target = document.getElementById(pageId);
+    if (target) {
+        target.style.display = 'flex';
+        target.classList.add('active');
+    }
+    // Сброс прокрутки
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-    
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(pageId).classList.add('active');
     handleResize();
 }
 
@@ -1417,9 +1425,7 @@ async function logout() {
     showPage('login-page');
     document.getElementById('login').value = '';
     document.getElementById('password').value = '';
-    // Убираем фокус с полей
     if (document.activeElement) document.activeElement.blur();
-    // Прокрутка вверх
     window.scrollTo(0, 0);
 }
 
